@@ -81,6 +81,10 @@ services:
       JORO_LISTENER: ${JORO_LISTENER:-true}
       JORO_COLLABORATOR_DOMAIN: ${JORO_COLLABORATOR_DOMAIN:-example.com}
       JORO_RESPONSE_IP: ${JORO_RESPONSE_IP:-1.2.3.4}
+      # Optional: Set any listener port to 0 to completely disable it inside the container
+      # JORO_HTTPS_PORT: ${JORO_HTTPS_PORT:-1443}
+      # JORO_SMTP_PORT: ${JORO_SMTP_PORT:-1025}
+      # JORO_SMTPS_PORT: ${JORO_SMTPS_PORT:-1465}
     volumes:
       - ./data:/data
     restart: unless-stopped
@@ -120,6 +124,10 @@ services:
       JORO_TEAMSERVER: "true"
       # JORO_COLLABORATOR_DOMAIN: "example.com"
       # JORO_RESPONSE_IP: "1.2.3.4"
+      # Optional: Set any listener port to 0 to completely disable it inside the container
+      # JORO_HTTPS_PORT: 1443
+      # JORO_SMTP_PORT: 1025
+      # JORO_SMTPS_PORT: 1465
     volumes:
       - ./data:/data
     restart: unless-stopped
