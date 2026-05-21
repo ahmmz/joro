@@ -1,0 +1,12 @@
+.git
+.github
+dist
+web/node_modules
+web/dist
+joro
+*.so
+*.dylib
+*.exe
+.gemini
+.env
+data/

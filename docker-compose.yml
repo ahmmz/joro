@@ -1,0 +1,133 @@
+networks:
+  traefik:
+    external: true
+  joro:
+    name: joro
+    driver: bridge
+    internal: false
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.18.29.0/24"
+    driver_opts:
+      com.docker.network.bridge.name: "joro"
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
+
+x-common-env: &common
+  TZ: ${TIMEZONE}
+  PUID: ${PUID:-1000}
+  PGID: ${PGID:-1000}
+x-joro-env: &joro-env
+  <<: *common
+  JORO_BIND: ${JORO_BIND:-0.0.0.0}
+  JORO_DATA_DIR: ${JORO_DATA_DIR:-/data}
+  JORO_UI_PORT: ${JORO_UI_PORT:-9090}
+  JORO_DISABLE_UPDATE_CHECKS: ${JORO_DISABLE_UPDATE_CHECKS:-true}
+
+services:
+  # Intercepting Proxy & Web UI (Default service)
+  # Start with: docker compose up -d
+  joro-proxy:
+    image: joro/joro:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      tags: [ "joro/joro:latest" ]
+      args: [ "UID=${PUID}", "GID=${PGID}" ]
+    # user: "0:0" # Un-comment to enable dynamic PUID/PGID permission syncing for host bind mounts
+    pull_policy: never
+    container_name: joro-proxy
+    ports:
+      - "8080:8080" # Intercepting Proxy port
+      - "9090:9090" # Control UI / API Port
+    environment:
+      <<: *joro-env
+      JORO_PROXY_PORT: ${JORO_PROXY_PORT:-8080}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    networks:
+      - joro
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.joro.service=joro"
+      - "traefik.http.routers.joro.rule=Host(`${JORO_DOMAIN:-joro.local}`)"
+      - "traefik.http.services.joro.loadbalancer.server.port=9090"
+
+  # Out-of-band Callback Listener Mode (Requires "--profile listener")
+  # Start with: docker compose --profile listener up -d
+  joro-listener:
+    image: joro:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      tags: [ "joro/joro:latest" ]
+      args: [ "UID=${PUID}", "GID=${PGID}" ]
+    # user: "0:0" # Un-comment to enable dynamic PUID/PGID permission syncing for host bind mounts
+    pull_policy: never
+    container_name: joro-listener
+    profiles:
+      - listener
+    ports:
+      - "9090:9090"       # API / UI Port
+      - "53:1053/udp"     # Host DNS mapped to unprivileged container port 1053
+      - "80:1080"         # Host HTTP mapped to unprivileged container port 1080
+      - "443:1443"       # Host HTTPS mapped to unprivileged container port 1443 (set JORO_HTTPS_PORT=0 to disable)
+      - "25:1025"         # Host SMTP mapped to unprivileged container port 1025 (set JORO_SMTP_PORT=0 to disable)
+      - "465:1465"       # Host SMTPS mapped to unprivileged container port 1465 (set JORO_SMTPS_PORT=0 to disable)
+    environment:
+      <<: *joro-env
+      JORO_LISTENER: ${JORO_LISTENER:-true}
+      JORO_COLLABORATOR_DOMAIN: ${JORO_COLLABORATOR_DOMAIN:-example.com}
+      JORO_RESPONSE_IP: ${JORO_RESPONSE_IP:-1.2.3.4}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    networks:
+      - joro
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.joro.service=joro"
+      - "traefik.http.routers.joro.rule=Host(`${JORO_DOMAIN:-joro.local}`)"
+      - "traefik.http.services.joro.loadbalancer.server.port=9090"
+
+  # Authenticated Team Server Mode (Requires "--profile teamserver")
+  # Start with: docker compose --profile teamserver up -d
+  joro-teamserver:
+    image: joro:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      tags: [ "joro/joro:latest" ]
+      args: [ "UID=${PUID}", "GID=${PGID}" ]
+    # user: "0:0" # Un-comment to enable dynamic PUID/PGID permission syncing for host bind mounts
+    pull_policy: never
+    container_name: joro-teamserver
+    profiles:
+      - teamserver
+    ports:
+      - "9090:9090"       # API controller endpoints (teamserver listener)
+      - "53:1053/udp"     # Host DNS mapped to unprivileged container port 1053
+      - "80:1080"         # Host HTTP mapped to unprivileged container port 1080
+      - "443:1443"       # Host HTTPS mapped to unprivileged container port 1443
+      - "25:1025"         # Host SMTP mapped to unprivileged container port 1025
+      - "465:1465"       # Host SMTPS mapped to unprivileged container port 1465
+    environment:
+      <<: *joro-env
+      JORO_LISTENER: "true"
+      JORO_TEAMSERVER: "true"
+      # JORO_COLLABORATOR_DOMAIN: "example.com"
+      # JORO_RESPONSE_IP: "1.2.3.4"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    networks:
+      - joro
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.joro.service=joro"
+      - "traefik.http.routers.joro.rule=Host(`${JORO_DOMAIN:-joro.local}`)"
+      - "traefik.http.services.joro.loadbalancer.server.port=9090"

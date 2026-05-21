@@ -16,6 +16,35 @@ Joro covers a web application engagement end to end: an intercepting proxy for v
 
 Grab a binary from [Releases](https://github.com/BishopFox/joro/releases), then see the wiki for [installation instructions](https://github.com/BishopFox/joro/wiki/Installation) and a [quick start guide](https://github.com/BishopFox/joro/wiki/Getting-Started).
 
+### Docker Deployment
+
+You can run Joro using Docker and Docker Compose securely without root privileges inside the container:
+
+- **Proxy Mode (Default)**: Starts proxy (:8080) and UI (:9090).
+  ```bash
+  docker compose up -d
+  ```
+- **Listener Mode**: Starts out-of-band callback server.
+  ```bash
+  docker compose --profile listener up -d
+  ```
+- **Team Server Mode**: Starts callback listener with collaboration server.
+  ```bash
+  docker compose --profile teamserver up -d
+  ```
+
+#### Non-Root & Bind Mount Ownership
+By default, the container drops privileges to non-root execution inside the container. To ensure that the local bind mount `./data` is perfectly accessible by your local host user, specify your host UID/GID in `docker-compose.yml` or as environment variables:
+```bash
+PUID=$(id -u) PGID=$(id -g) docker compose up -d
+```
+All files (databases, certs, and plugins) created in `./data` will be owned by your local host user.
+
+#### Unprivileged Ports
+Joro runs on unprivileged ports inside the container (e.g. HTTP on `1080`, DNS on `1053`). Docker Compose automatically maps these to standard privileged ports on the host (e.g. `80`, `53/udp`). You can freely change these mappings in `docker-compose.yml`.
+
+Configurations can be customized using `JORO_*` environment variables in `docker-compose.yml` (e.g. `JORO_DOMAIN`, `JORO_COLLABORATOR_DOMAIN`, `JORO_RESPONSE_IP`).
+
 ## Help
 
 For more information:

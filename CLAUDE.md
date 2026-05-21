@@ -189,6 +189,12 @@ make build-all               # Cross-platform → dist/
 make dev                     # Backend with --dev flag (proxies UI to Vite)
 cd web && npm run dev        # Vite dev server (separate terminal, with `make dev`)
 
+# Docker deployment commands
+docker build -t joro:latest .                             # Compile multi-stage container
+docker compose up -d                                      # Run proxy mode container
+docker compose --profile listener up -d                    # Run listener mode container
+docker compose --profile teamserver up -d                  # Run team server mode container
+
 # Build a plugin from source (auto-detects .so vs .dylib)
 ./joro --build-plugin examples/plugins/hello-feature
 ./joro --build-plugin examples/plugins/hello-feature --install   # also installs to ~/.joro/plugins/

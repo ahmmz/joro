@@ -3,6 +3,9 @@ test/
 dist/
 web/node_modules/
 
+# Environments
+.env
+
 # plugins
 *.dylib
 *.so
@@ -13,3 +16,6 @@ web/node_modules/
 
 # Tests are not committed to the public repo
 *test*.go
+
+# Local Joro data directory (Docker bind mount)
+/data/
