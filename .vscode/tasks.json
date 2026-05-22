@@ -1,0 +1,167 @@
+{
+  // See https://go.microsoft.com/fwlink/?LinkId=733558
+  // for the documentation about the tasks.json format
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Joro (Proxy Mode)",
+      "type": "shell",
+      "icon": { "id": "run-all" },
+      "detail": "Start Joro in Proxy Mode (default)",
+      "command": "docker compose up -d",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "showReuseMessage": false,
+        "clear": true,
+        "panel": "new"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Start Joro (Listener Mode)",
+      "type": "shell",
+      "icon": { "id": "radio-tower" },
+      "detail": "Start Joro in Listener Mode (OAST Callback)",
+      "command": "docker compose --profile listener up -d",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "showReuseMessage": false,
+        "clear": true,
+        "panel": "new"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Start Joro (Team Server Mode)",
+      "type": "shell",
+      "icon": { "id": "hubot" },
+      "detail": "Start Joro in Authenticated Team Server Mode",
+      "command": "docker compose --profile teamserver up -d",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "showReuseMessage": false,
+        "clear": true,
+        "panel": "new"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Stop Joro",
+      "type": "shell",
+      "icon": { "id": "stop-circle" },
+      "detail": "Stop all Joro services",
+      "command": "docker compose down",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "showReuseMessage": false,
+        "clear": true,
+        "panel": "new"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Build Joro Docker Image",
+      "type": "shell",
+      "icon": { "id": "symbol-constructor" },
+      "detail": "Build the production-grade Docker image",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "command": "docker build -t joro:latest .",
+      "presentation": {
+        "reveal": "always",
+        "focus": false,
+        "showReuseMessage": true,
+        "clear": false,
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Build Joro (Native)",
+      "type": "shell",
+      "icon": { "id": "tools" },
+      "detail": "Compile Joro native binary locally",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "command": "make build",
+      "presentation": {
+        "reveal": "always",
+        "focus": false,
+        "showReuseMessage": true,
+        "clear": false,
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Run Joro (Dev Mode)",
+      "type": "shell",
+      "icon": { "id": "terminal" },
+      "detail": "Run Joro in dev mode (proxies UI requests to local Vite dev server)",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "command": "make dev",
+      "presentation": {
+        "reveal": "always",
+        "focus": true,
+        "showReuseMessage": true,
+        "clear": true,
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Clean Build Artifacts",
+      "type": "shell",
+      "icon": { "id": "trash" },
+      "detail": "Clean local build artifacts and node_modules",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "command": "make clean",
+      "presentation": {
+        "reveal": "always",
+        "focus": false,
+        "showReuseMessage": true,
+        "clear": false,
+        "panel": "dedicated"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    }
+  ]
+}

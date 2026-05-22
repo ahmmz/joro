@@ -39,4 +39,5 @@ dev:
 
 clean:
 	rm -f $(BINARY) $(DIST)/joro-*
-	rm -rf web/dist web/node_modules
+	find web/dist -mindepth 1 ! -name 'README.md' -delete 2>/dev/null || true
+	rm -rf web/node_modules

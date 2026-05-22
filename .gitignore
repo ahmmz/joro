@@ -1,6 +1,8 @@
 joro
 test/
-dist/
+/dist/
+/web/dist/*
+!/web/dist/README.md
 web/node_modules/
 
 # Environments
