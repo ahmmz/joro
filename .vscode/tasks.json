@@ -87,7 +87,7 @@
       "options": {
         "cwd": "${workspaceFolder}"
       },
-      "command": "docker build -t joro:latest .",
+      "command": "docker build -t joro/joro:latest .",
       "presentation": {
         "reveal": "always",
         "focus": false,

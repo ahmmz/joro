@@ -67,8 +67,5 @@ COPY entrypoint.sh /app/entrypoint.sh
 # Ensure ownership of the application directory and data directory
 RUN chown -R joro:joro /app /data
 
-# Default to running as the non-root user
-USER joro
-
 # Use entrypoint script to parse JORO_* env variables at startup
 ENTRYPOINT ["/app/entrypoint.sh"]

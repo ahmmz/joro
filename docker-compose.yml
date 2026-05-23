@@ -58,7 +58,7 @@ services:
   # Out-of-band Callback Listener Mode (Requires "--profile listener")
   # Start with: docker compose --profile listener up -d
   joro-listener:
-    image: joro:latest
+    image: joro/joro:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -100,7 +100,7 @@ services:
   # Authenticated Team Server Mode (Requires "--profile teamserver")
   # Start with: docker compose --profile teamserver up -d
   joro-teamserver:
-    image: joro:latest
+    image: joro/joro:latest
     build:
       context: .
       dockerfile: Dockerfile

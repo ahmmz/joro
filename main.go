@@ -89,7 +89,7 @@ func main() {
 		cfg.BindAddr = "0.0.0.0"
 	}
 
-	if cfg.BindAddr != "127.0.0.1" && cfg.BindAddr != "localhost" && cfg.BindAddr != "::1" {
+	if cfg.BindAddr != "127.0.0.1" && cfg.BindAddr != "localhost" && cfg.BindAddr != "::1" && !isDockerEnv() {
 		what := "servers"
 		if !cfg.Listener {
 			// Proxy mode forces the UI/API to loopback; only the proxy port honors --bind.
@@ -629,4 +629,10 @@ func localGoVersion(dir string) (string, bool) {
 		return "", false
 	}
 	return fields[2], true
+}
+
+// isDockerEnv checks if the application is running inside a Docker container.
+func isDockerEnv() bool {
+	_, err := os.Stat("/.dockerenv")
+	return err == nil
 }
