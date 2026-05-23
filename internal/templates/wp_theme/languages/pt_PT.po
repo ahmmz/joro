@@ -1,0 +1,296 @@
+# Translation of Themes - Envo Royal in Portuguese (Portugal)
+# This file is distributed under the same license as the Themes - Envo Royal package.
+msgid ""
+msgstr ""
+"PO-Revision-Date: 2024-08-14 09:50+0200\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=n != 1;\n"
+"X-Generator: Poedit 1.8.8\n"
+"Language: pt\n"
+"Project-Id-Version: Themes - Envo Royal\n"
+"POT-Creation-Date: \n"
+"Last-Translator: \n"
+"Language-Team: \n"
+
+#. Description of the theme
+#: style.css
+msgid "Envo Royal is a fast, clean, lightweight, customizable and modern-looking free responsive multipurpose WordPress theme. Suitable for blog, creative, portfolio or business website and WooCommerce storefront. Theme supports popular page builders like Elementor, Beaver Builder, SiteOrigin, Thrive Architect, Divi, Brizy, Visual Composer, Gutenberg etc. Envo Royal comes with unique WooCommerce Features and it is compatible with YITH WooCommerce Wishlist, YITH WooCommerce Compare, WooCommerce Variation Swatches and other popular plugins. The theme is SEO friendly, WPML and RTL ready. Documentation: https://envothemes.com/docs/envo-royal/ Theme demos ready to import: https://envothemes.com/envo-royal-free-wp-theme/#demos"
+msgstr "O Envo Royal é um tema WordPress gratuito para vários tipos de site, rápido, limpo, leve, personalizável, moderno e responsivo. É adequado para blogs, sites criativos, portefólios, negócios e lojas WooCommerce. Este tema suporta construtores de páginas populares, como o Elementor, Beaver Builder, SiteOrigin, Thrive Architect, Divi, Brizy, Visual Composer, Gutenberg, etc. O Envo Royal inclui funcionalidades únicas para WooCommerce e é compatível com YITH WooCommerce Wishlist, YITH WooCommerce Compare, WooCommerce Variation Swatches e outros plugins populares. O tema é adequado para SEO, WPML e está preparado para RTL. Documentação: https://envothemes.com/docs/envo-royal/ Demonstração do tema pronta a importar: https://envothemes.com/envo-royal-free-wp-theme/#demos"
+
+#. Theme Name of the theme
+#: style.css
+msgid "Envo Royal"
+msgstr "Envo Royal"
+
+#: extra/customizer/install/class-plugin-install-helper.php:110
+#: extra/customizer/notice/class-customizer-notice.php:145
+msgid "Activating"
+msgstr "A activar"
+
+#: extra/customizer/info.php:147
+msgid "View PRO version"
+msgstr "Ver a versão PRO"
+
+#: extra/customizer/info.php:145
+msgid "PRO version"
+msgstr "versão PRO"
+
+#. translators: %s: "documentation" string
+#: extra/customizer/info.php:30
+msgid "For step-by-step videos and text tutorials, see %1$s"
+msgstr "Para tutoriais passo a passo em vídeo e texto, consulte a %1$s"
+
+#. translators: %s: "demos here" string
+#: extra/customizer/info.php:26
+msgid "demos"
+msgstr "demonstrações"
+
+#. translators: %s: "demos here" string
+#: extra/customizer/info.php:26
+msgid "You can use this theme to create a website like these %1$s"
+msgstr "Pode utilizar este tema para criar um site como estas %1$s"
+
+#: extra/customizer/info.php:11
+msgid "Video Documentation & Demo"
+msgstr "Documentação em vídeo e demonstração"
+
+#: extra/customizer/demo.php:42 extra/customizer/demo.php:44
+msgid "Import demo data"
+msgstr "Importar dados de demonstração"
+
+#. translators: %s: "documentation" string
+#: extra/customizer/demo.php:27 extra/customizer/info.php:30
+msgid "documentation"
+msgstr "documentação"
+
+#. translators: %s: "documentation" string
+#: extra/customizer/demo.php:27
+msgid "You can import the demo content with just one click. For step-by-step video tutorial, see %1$s"
+msgstr "Pode importar conteúdos da demonstração com apenas um clique. Para um tutorial em vídeo passo a passo, consulte a %1$s"
+
+#: extra/customizer/demo.php:15
+msgid "One Click Demo Import"
+msgstr "Importar demonstração com um clique"
+
+#. Template Name of the theme
+msgid "Page Builders"
+msgstr "Construtores de páginas"
+
+#. Template Name of the theme
+msgid "No Sidebar"
+msgstr "Sem barras laterais"
+
+#. translators: %s: search result string
+#: search.php:10
+msgid "Search Results for: %s"
+msgstr "Resultados da pesquisa por: %s"
+
+#: functions.php:440
+msgid "Skip to the content"
+msgstr "Saltar para o conteúdo"
+
+#: functions.php:322
+msgid "Footer Section"
+msgstr "Secção do rodapé"
+
+#: functions.php:311
+msgid "Header Section"
+msgstr "Secção de cabeçalho"
+
+#: functions.php:300
+msgid "Top Bar Section"
+msgstr "Secção da barra superior"
+
+#: functions.php:290
+msgid "Sidebar"
+msgstr "Barra lateral"
+
+#: functions.php:26
+msgid "Categories Menu"
+msgstr "Menu de categorias"
+
+#: functions.php:25
+msgid "Menu Right"
+msgstr "Menu à direita"
+
+#: functions.php:22
+msgid "Main Menu"
+msgstr "Menu principal"
+
+#: extra/wp_bootstrap_navwalker.php:366
+msgid "Add a menu"
+msgstr "Adicionar um menu"
+
+#: extra/woocommerce.php:253
+msgid "All Categories"
+msgstr "Todas as categorias"
+
+#: extra/woocommerce.php:251
+msgid "Search products..."
+msgstr "Pesquisar produtos..."
+
+#: extra/woocommerce.php:189 extra/woocommerce.php:211
+msgid "Categories"
+msgstr "Categorias"
+
+#: extra/woocommerce.php:146
+msgid "Search"
+msgstr "Pesquisar"
+
+#: extra/woocommerce.php:129
+msgid "Compare"
+msgstr "Comparar"
+
+#: extra/woocommerce.php:109
+msgid "Wishlist"
+msgstr "Lista de desejos"
+
+#: extra/woocommerce.php:89
+msgid "My Account"
+msgstr "A minha conta"
+
+#: extra/woocommerce.php:36
+msgid "Cart"
+msgstr "Carrinho"
+
+#: extra/extra.php:671
+msgid "Next"
+msgstr "Seguinte"
+
+#: extra/extra.php:671
+msgid "Next Post"
+msgstr "Artigo seguinte"
+
+#: extra/extra.php:670
+msgid "Previous"
+msgstr "Anterior"
+
+#: extra/extra.php:670
+msgid "Previous Post"
+msgstr "Artigo anterior"
+
+#: extra/extra.php:561
+msgid "About The Author"
+msgstr "Sobre o autor"
+
+#: extra/extra.php:539
+msgid "Comment on "
+msgstr "Comentário em "
+
+#: extra/extra.php:536
+msgid "Off"
+msgstr "Não"
+
+#: extra/extra.php:512
+msgid "By"
+msgstr "Por"
+
+#: extra/extra.php:367
+msgid "Tags"
+msgstr "Etiquetas"
+
+#: extra/extra.php:363
+msgid "Category"
+msgstr "Categoria"
+
+#: extra/envo-royal-plugin-install.php:75
+msgid "Learn more"
+msgstr "Saiba mais"
+
+#: extra/customizer-recommend.php:25 extra/envo-royal-plugin-install.php:55
+msgid "Install now"
+msgstr "Instalar agora"
+
+#: extra/envo-royal-dashboard.php:82 extra/envo-royal-dashboard.php:139
+msgid "Install"
+msgstr "Instalar"
+
+#: extra/customizer-recommend.php:26
+#: extra/customizer/install/class-plugin-install-helper.php:59
+#: extra/customizer/install/class-plugin-install-helper.php:75
+#: extra/envo-royal-dashboard.php:82 extra/envo-royal-dashboard.php:139
+#: extra/envo-royal-plugin-install.php:40
+msgid "Activate"
+msgstr "Activar"
+
+#: extra/envo-royal-dashboard.php:82 extra/envo-royal-dashboard.php:139
+#: extra/envo-royal-plugin-install.php:29
+msgid "Activated"
+msgstr "Activado"
+
+#. translators: %s: Theme name
+#: extra/envo-royal-dashboard.php:86
+msgid "Get started with %s"
+msgstr "Comece a trabalhar com o %s"
+
+#. translators: %s: Plugin name string
+#: extra/customizer-recommend.php:20 extra/envo-royal-dashboard.php:78
+#: extra/envo-royal-dashboard.php:136
+msgid "To take full advantage of all the features this theme has to offer, please install and activate the %s plugin."
+msgstr "Para aproveitar todas as funcionalidades que este tema tem para oferecer, por favor instale e active o plugin %s."
+
+#. translators: %s: Theme name
+#: extra/customizer-recommend.php:24 extra/envo-royal-dashboard.php:72
+#: extra/envo-royal-dashboard.php:130
+msgid "Thank you for installing %s."
+msgstr "Obrigado por instalar o %s."
+
+#: content-none.php:19
+msgid "It seems we can&rsquo;t find what you&rsquo;re looking for. Perhaps searching can help."
+msgstr "Parece que não foi possível encontrar o que procurava. Talvez uma pesquisa ajude."
+
+#: content-none.php:14
+msgid "Sorry, but nothing matched your search terms. Please try again with some different keywords."
+msgstr "Não foi encontrado nenhum resultado correspondente ao seu critério de pesquisa. Por favor tente com outras palavras-chave."
+
+#. translators: %1$s: link to admin area
+#: content-none.php:9
+msgid "Ready to publish your first post? <a href=\"%1$s\">Get started here</a>."
+msgstr "Quer publicar o seu primeiro artigo? <a href=\"%1$s\">Comece aqui</a>."
+
+#: content-none.php:3
+msgid "Nothing Found"
+msgstr "Nenhum resultado encontrado"
+
+#: comments.php:47
+msgid "Comments are closed."
+msgstr "Os comentários estão fechados."
+
+#. translators: 1: number of comments, 2: post title
+#: comments.php:22
+msgctxt "comments title"
+msgid "%1$s thought on &ldquo;%2$s&rdquo;"
+msgid_plural "%1$s thoughts on &ldquo;%2$s&rdquo;"
+msgstr[0] "%1$s comentário em &ldquo;%2$s&rdquo;"
+msgstr[1] "%1$s comentário em &ldquo;%2$s&rdquo;"
+
+#. translators: %s: post title
+#: comments.php:19
+msgctxt "comments title"
+msgid "One thought on &ldquo;%s&rdquo;"
+msgstr "Um comentário em &ldquo;%s&rdquo;"
+
+#: 404.php:15
+msgid "It looks like nothing was found at this location. Maybe try a search?"
+msgstr "Parece que não foi encontrado nada aqui. Que tal tentar uma pesquisa?"
+
+#: 404.php:13
+msgid "Oops! That page can&rsquo;t be found."
+msgstr "Ups! Não foi possível encontrar essa página."
+
+#. Theme URI of the theme
+#: style.css
+msgid "https://envothemes.com/envo-royal-free-wp-theme/"
+msgstr "https://envothemes.com/envo-royal-free-wp-theme/"
+
+#. Author URI of the theme
+#: style.css
+msgid "https://envothemes.com/"
+msgstr "https://envothemes.com/"
+
+#. Author of the theme
+#: style.css
+msgid "EnvoThemes"
+msgstr "EnvoThemes"

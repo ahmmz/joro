@@ -639,9 +639,9 @@ export const api = {
   },
 
   // Generate
-  generate: (format: string, mode?: string, implantUrl?: string, binaryName?: string, inMemory?: boolean) =>
+  generate: (format: string, mode?: string, implantUrl?: string, binaryName?: string, inMemory?: boolean, payloadFileName?: string, archiveName?: string, payloadDirectory?: string, archiveRootDir?: string, harpyToken?: string) =>
     req<{ fileName: string; authKey: string; content: string }>(
-      'POST', '/generate', { format, mode: mode || 'webshell', implantUrl, binaryName, inMemory }),
+      'POST', '/generate', { format, mode: mode || 'webshell', implantUrl, binaryName, inMemory, payloadFileName, archiveName, payloadDirectory, archiveRootDir, harpyToken }),
 
   // Execute
   execute: (target: string, webshell: string, authKey: string, command: string) =>

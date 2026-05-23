@@ -1,0 +1,240 @@
+a.sf-nux-button, .sf-nux .sf-nux-button {
+    background: #00aadc;
+    border-color: #0087be;
+    border-style: solid;
+    border-width: 1px 1px 2px;
+    color: #fff;
+    cursor: pointer;
+    display: inline-block;
+    outline: 0;
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    text-decoration: none;
+    text-transform: none;
+    text-shadow: none;
+    box-sizing: border-box;
+    font-size: 14px;
+    height: auto;
+    line-height: 21px;
+    border-radius: 4px;
+    margin: 0;
+    padding: 7px 14px 9px;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    vertical-align: baseline;
+}
+
+.envo-notice .envo-row a.envo-royal-button {
+    display: inline-table;
+}
+
+a.sf-nux-button:active, .sf-nux .sf-nux-button:active {
+    border-width: 2px 1px 1px;
+    box-shadow: none;
+    vertical-align: baseline;
+}
+
+a.sf-nux-button:disabled, a.sf-nux-button[disabled], .sf-nux .sf-nux-button:disabled, .sf-nux .sf-nux-button[disabled] {
+    background: tint(#78dcfa,50%);
+    border-color: tint(#0087be,55%);
+    color: #fff;
+    cursor: default;
+}
+
+a.sf-nux-button:disabled:active, a.sf-nux-button[disabled]:active, .sf-nux .sf-nux-button:disabled:active, .sf-nux .sf-nux-button[disabled]:active {
+    border-width: 1px 1px 2px;
+}
+
+a.sf-nux-button:focus, .sf-nux .sf-nux-button:focus {
+    box-shadow: 0 0 0 2px #78dcfa;
+}
+
+a.sf-nux-button:focus, a.sf-nux-button:hover, .sf-nux .sf-nux-button:focus, .sf-nux .sf-nux-button:hover {
+    border-color: #005082;
+    color: #fff;
+}
+
+.sf-install-now.updating-message::before {
+    -webkit-animation: rotation 2s infinite linear;
+    animation: rotation 2s infinite linear;
+    content: "\f463";
+    display: inline-block;
+    font: 400 19px/1 dashicons;
+    margin: 0 5px 0 -2px;
+    vertical-align: bottom;
+}
+
+.sf-notice-nux {
+    background: #e9eff3;
+    border: 10px solid #fff;
+    box-shadow: none;
+    color: #608299;
+    padding: 60px;
+    text-align: center;
+}
+
+.sf-notice-nux .notice-content {
+    margin: 0 auto;
+    max-width: 420px;
+}
+
+.sf-notice-nux .sf-icon {
+    background: #2f2f2f;
+    border-radius: 100%;
+    display: block;
+    height: 100px;
+    margin: 0 auto 30px;
+    position: relative;
+    width: 100px;
+}
+
+.sf-notice-nux .sf-icon img {
+    bottom: 0;
+    box-sizing: border-box;
+    left: 0;
+    margin: auto;
+    max-width: 100%;
+    padding: 16px;
+    position: absolute;
+    right: 0;
+    top: 0;
+}
+
+.sf-notice-nux .sf-plugin-card {
+    display: block;
+}
+
+.sf-notice-nux h2 {
+    color: #2e4453;
+    font-weight: 400;
+    margin: 0 0 10px;
+}
+
+.sf-notice-nux label {
+    display: block;
+    margin-bottom: 8px;
+    text-align: left;
+}
+
+.sf-notice-nux label:last-of-type {
+    margin-bottom: 2em;
+}
+
+.sf-notice-nux p {
+    line-height: 1.6;
+    margin: 0 0 2em;
+    padding: 0;
+}
+
+.sf-notice-nux::after {
+    clear: both;
+}
+
+.sf-notice-nux::after, .sf-notice-nux::before {
+    content: "";
+    display: table;
+}
+
+.sf-nux-button.updating-message::before {
+    -webkit-animation: rotation 2s infinite linear;
+    animation: rotation 2s infinite linear;
+    content: "\f463";
+    display: inline-block;
+    font: 400 20px/1 dashicons;
+    margin: 3px 5px 0 -2px;
+    vertical-align: bottom;
+}
+
+.notice.envo-notice {
+    padding-top: 20px !important;
+}
+.envo-notice .notice-content a {
+    margin-right: 20px;
+}
+.envo-notice .envo-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.envo-notice .envo-row .envo-col {
+    width: 50%;
+}
+.envo-notice .envo-row .envo-col .notice-content {
+    max-width: 630px;
+    padding-left: 64px;
+    padding-bottom: 30px;
+}
+.envo-notice .envo-row .envo-col h2 {
+    font-weight: 500;
+    font-size: 34px;
+    line-height: 38px;
+    letter-spacing: -0.5px;
+    color: #1f2937;
+    margin-top: 0;
+    margin-bottom: 10px;
+}
+.envo-notice .envo-row .envo-col .envo-description {
+    color: #4b5563;
+    margin-bottom: 15px;
+    font-size: 18px;
+    line-height: 24px;
+    font-weight: 400;
+}
+.envo-notice .envo-row .envo-col .button,
+.envo-notice .envo-row a.envo-button {
+    font-weight: 500;
+    font-size: 16px;
+    line-height: 24px;
+    padding: 10px 16px;
+    border-radius: 6px;
+    margin-top: 5px;
+    text-align: center;
+    margin-bottom: 5px;
+}
+.envo-notice .envo-row a.envo-button {
+    display: inline-table;
+}
+.envo-notice .envo-row .envo-col.envo-col-right {
+    align-self: flex-end;
+}
+.envo-notice .envo-row .envo-col .image-container img {
+    width: 100%;
+    height: auto;
+    float: right;
+    max-width: 480px;
+}
+@media only screen and (max-width: 782px) {
+    .sf-notice-nux .sf-icon {
+        height: 65px;
+        width: 65px;
+    }
+
+    .sf-notice-nux .sf-icon img {
+        padding: 10px;
+    }
+
+    .sf-notice-nux form {
+        margin-top: 30px;
+    }
+
+    .sf-notice-nux label:last-of-type {
+        margin-top: 20px;
+    }
+    .envo-notice .envo-row .envo-col .image-container {
+        display: none;
+    }
+    .envo-notice .envo-row .envo-col {
+        width: 100% !important;
+    }
+}
+.envo-install-now.updating-message::before {
+    display: inline-block;
+    content: "\f463";
+    font: 400 19px/1 dashicons;
+    margin: 0 5px 0 -2px;
+    vertical-align: bottom;
+    -webkit-animation: 2s linear infinite rotation;
+    animation: 2s linear infinite rotation;
+}

