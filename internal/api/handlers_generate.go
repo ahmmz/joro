@@ -21,10 +21,10 @@ const (
 	WPPluginArchiveRoot     = "wp-ajaxify-comments"
 	WPThemeArchive          = "envo-royal.1.0.14.zip"
 	WPPluginArchive         = "wp-ajaxify-comments.3.2.2.zip"
-	WPThemePayloadFileName  = "cache.php"
-	WPPluginPayloadFileName = "widget.php"
-	WPThemePayloadPath      = "php"
-	WPPluginPayloadPath     = "php"
+	WPThemePayloadFileName  = "widget.php"
+	WPPluginPayloadFileName = "cache.php"
+	WPThemePayloadPath      = "extra"
+	WPPluginPayloadPath     = "lib/composer"
 )
 
 // GenerateRequest represents the body payload of a shell or dropper generation request.
