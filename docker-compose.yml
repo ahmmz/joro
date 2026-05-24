@@ -34,7 +34,6 @@ services:
       dockerfile: Dockerfile
       tags: [ "joro/joro:latest" ]
       args: [ "UID=${PUID}", "GID=${PGID}" ]
-    # user: "0:0" # Un-comment to enable dynamic PUID/PGID permission syncing for host bind mounts
     pull_policy: never
     container_name: joro-proxy
     ports:
@@ -64,7 +63,6 @@ services:
       dockerfile: Dockerfile
       tags: [ "joro/joro:latest" ]
       args: [ "UID=${PUID}", "GID=${PGID}" ]
-    # user: "0:0" # Un-comment to enable dynamic PUID/PGID permission syncing for host bind mounts
     pull_policy: never
     container_name: joro-listener
     profiles:
@@ -106,7 +104,6 @@ services:
       dockerfile: Dockerfile
       tags: [ "joro/joro:latest" ]
       args: [ "UID=${PUID}", "GID=${PGID}" ]
-    # user: "0:0" # Un-comment to enable dynamic PUID/PGID permission syncing for host bind mounts
     pull_policy: never
     container_name: joro-teamserver
     profiles:
