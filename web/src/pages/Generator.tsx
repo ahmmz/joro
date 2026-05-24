@@ -190,7 +190,7 @@ export default function Generator() {
               <input
                 value={harpyToken}
                 onChange={(e) => setHarpyToken(e.target.value)}
-                placeholder="e.g. secret-token-123"
+                placeholder="SHA-1 Checksum (40 hex chars, optional)"
                 className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border focus:outline-none focus:border-accent"
               />
             </div>
@@ -298,49 +298,93 @@ export default function Generator() {
             <code className="text-accent-tertiary text-sm break-all">{result.authKey}</code>
           </div>
 
-          {/* File name */}
-          <div className="bg-surface-card rounded p-3 border border-border">
-            <div className="text-xs text-content-muted uppercase mb-1">File</div>
-            <code className="text-accent-secondary text-sm">{result.fileName}</code>
-          </div>
-
-          {/* Content / Path preview */}
-          <div className="bg-surface-card rounded p-3 border border-border">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-content-muted uppercase">
-                {!result.fileName.endsWith('.zip') ? 'Content' : 'Path'}
-              </span>
-              <div className="flex gap-2">
-                {!result.fileName.endsWith('.zip') ? (
-                  <button onClick={() => copyText(b64Decode(result.content))} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
-                    Copy
-                  </button>
-                ) : (
+          {mode === 'wordpress' ? (
+            <>
+              {/* Web Shell Path */}
+              <div className="bg-surface-card rounded p-3 border border-border">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-content-muted uppercase">Web Shell Path</span>
                   <button
                     onClick={() => {
-                      const archivePath = `${archiveRootDir ? archiveRootDir.replace(/\/$/, '') + '/' : ''}${payloadDirectory ? payloadDirectory.replace(/\/$/, '') + '/' : ''}${payloadFileName}`;
-                      copyText(archivePath);
+                      const root = archiveRootDir.replace(/^\/|\/$/g, '');
+                      const dir = payloadDirectory.replace(/^\/|\/$/g, '');
+                      const name = payloadFileName.replace(/^\//, '');
+                      const path = `/wp-content/${format === 'theme' ? 'themes' : 'plugins'}/${root}/${dir}/${name}`.replace(/\/+/g, '/');
+                      copyText(path);
                     }}
                     className="text-xs text-accent-secondary hover:text-accent-secondary-hover"
                   >
-                    Copy Path
+                    Copy
                   </button>
-                )}
-                <button onClick={download} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
-                  Download Archive
-                </button>
+                </div>
+                <code className="text-accent-secondary text-sm break-all">
+                  {(() => {
+                    const root = archiveRootDir.replace(/^\/|\/$/g, '');
+                    const dir = payloadDirectory.replace(/^\/|\/$/g, '');
+                    const name = payloadFileName.replace(/^\//, '');
+                    return `/wp-content/${format === 'theme' ? 'themes' : 'plugins'}/${root}/${dir}/${name}`.replace(/\/+/g, '/');
+                  })()}
+                </code>
               </div>
-            </div>
-            {!result.fileName.endsWith('.zip') ? (
-              <pre className="text-xs text-content-secondary overflow-auto max-h-64 whitespace-pre-wrap">
-                {b64Decode(result.content)}
-              </pre>
-            ) : (
-              <code className="text-accent-secondary text-sm">
-                {`${archiveRootDir ? archiveRootDir.replace(/\/$/, '') + '/' : ''}${payloadDirectory ? payloadDirectory.replace(/\/$/, '') + '/' : ''}${payloadFileName}`}
-              </code>
-            )}
-          </div>
+
+              {/* WordPress Package */}
+              <div className="bg-surface-card rounded p-3 border border-border">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-content-muted uppercase">WordPress Package</span>
+                  <button onClick={download} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
+                    Download Package
+                  </button>
+                </div>
+                <code className="text-accent-secondary text-sm break-all">{result.fileName}</code>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* File name */}
+              <div className="bg-surface-card rounded p-3 border border-border">
+                <div className="text-xs text-content-muted uppercase mb-1">File</div>
+                <code className="text-accent-secondary text-sm">{result.fileName}</code>
+              </div>
+
+              {/* Content / Path preview */}
+              <div className="bg-surface-card rounded p-3 border border-border">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-content-muted uppercase">
+                    {!result.fileName.endsWith('.zip') ? 'Content' : 'Path'}
+                  </span>
+                  <div className="flex gap-2">
+                    {!result.fileName.endsWith('.zip') ? (
+                      <button onClick={() => copyText(b64Decode(result.content))} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
+                        Copy
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          const archivePath = `${archiveRootDir ? archiveRootDir.replace(/\/$/, '') + '/' : ''}${payloadDirectory ? payloadDirectory.replace(/\/$/, '') + '/' : ''}${payloadFileName}`;
+                          copyText(archivePath);
+                        }}
+                        className="text-xs text-accent-secondary hover:text-accent-secondary-hover"
+                      >
+                        Copy Path
+                      </button>
+                    )}
+                    <button onClick={download} className="text-xs text-accent-secondary hover:text-accent-secondary-hover">
+                      Download Archive
+                    </button>
+                  </div>
+                </div>
+                {!result.fileName.endsWith('.zip') ? (
+                  <pre className="text-xs text-content-secondary overflow-auto max-h-64 whitespace-pre-wrap">
+                    {b64Decode(result.content)}
+                  </pre>
+                ) : (
+                  <code className="text-accent-secondary text-sm">
+                    {`${archiveRootDir ? archiveRootDir.replace(/\/$/, '') + '/' : ''}${payloadDirectory ? payloadDirectory.replace(/\/$/, '') + '/' : ''}${payloadFileName}`}
+                  </code>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
