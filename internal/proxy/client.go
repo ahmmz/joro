@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"net/http"
 	"net/url"
@@ -31,19 +32,24 @@ func NewHTTPClient(proxyURL string, tc *TransportConfig, legacyTLS bool) http.Cl
 		tlsCfg.CipherSuites = legacyTLSCiphers
 	}
 
+	// Legacy TLS mode: CentOS 6 / OpenSSL 1.0.1e sends a handshake_failure alert
+	// when it sees h2 in the ALPN extension even before cipher negotiation happens.
+	// Force HTTP/2 off so the ClientHello contains no ALPN extension.
+	forceH2 := !legacyTLS
+
 	var transport *http.Transport
 	if tc != nil {
 		// Clone settings from the TransportConfig but create a new transport
 		// so we can safely set a proxy without mutating the shared one.
 		transport = &http.Transport{
-			ForceAttemptHTTP2: tc.HTTP2(),
+			ForceAttemptHTTP2: tc.HTTP2() && forceH2,
 			DisableKeepAlives: !tc.KeepAlive(),
 			TLSClientConfig:   tlsCfg,
 			DialContext:       tc.SOCKSDialContext(),
 		}
 	} else {
 		transport = &http.Transport{
-			ForceAttemptHTTP2: true,
+			ForceAttemptHTTP2: forceH2,
 			TLSClientConfig:   tlsCfg,
 		}
 	}

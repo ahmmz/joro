@@ -14,6 +14,7 @@ interface ExecutorState {
   target: string
   webshell: string
   authKey: string
+  legacyTls: boolean
   configText: string
   sliverConnected: boolean
   activeSessionName: string
@@ -34,6 +35,7 @@ interface ExecutorState {
   setTarget: (v: string) => void
   setWebshell: (v: string) => void
   setAuthKey: (v: string) => void
+  setLegacyTls: (v: boolean) => void
   setConfigText: (v: string) => void
   setSliverConnected: (v: boolean) => void
   setActiveSessionName: (v: string) => void
@@ -58,6 +60,7 @@ export const useExecutorStore = create<ExecutorState>((set) => ({
   target: '',
   webshell: '',
   authKey: '',
+  legacyTls: false,
   configText: '',
   sliverConnected: false,
   activeSessionName: '',
@@ -78,6 +81,7 @@ export const useExecutorStore = create<ExecutorState>((set) => ({
   setTarget: (target) => set({ target }),
   setWebshell: (webshell) => set({ webshell }),
   setAuthKey: (authKey) => set({ authKey }),
+  setLegacyTls: (legacyTls) => set({ legacyTls }),
   setConfigText: (configText) => set({ configText }),
   setSliverConnected: (sliverConnected) => set({ sliverConnected }),
   setActiveSessionName: (activeSessionName) => set({ activeSessionName }),

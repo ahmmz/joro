@@ -644,8 +644,8 @@ export const api = {
       'POST', '/generate', { format, mode: mode || 'webshell', implantUrl, binaryName, inMemory, payloadFileName, archiveName, payloadDirectory, archiveRootDir, harpyToken }),
 
   // Execute
-  execute: (target: string, webshell: string, authKey: string, command: string) =>
-    req<{ output: string; error: string }>('POST', '/execute', { target, webshell, authKey, command }),
+  execute: (target: string, webshell: string, authKey: string, command: string, legacyTls?: boolean) =>
+    req<{ output: string; error: string }>('POST', '/execute', { target, webshell, authKey, command, legacyTls: legacyTls ?? false }),
 
   // Scope
   getScope: () => req<{ enabled: boolean; rules: ScopeRule[] }>('GET', '/scope'),

@@ -26,10 +26,10 @@ const BUILTIN_NAMES = new Set(BUILTIN_PROVIDERS.map((p) => p.name))
 
 export default function Executor() {
   const {
-    execMode, providers, target, webshell, authKey,
+    execMode, providers, target, webshell, authKey, legacyTls,
     configText, sliverConnected, activeSessionName, pluginStatus, pluginConfigValues,
     mythicUrl, mythicUsername, mythicPassword, mythicApiToken, mythicConnected, activeCallbackName,
-    setExecMode, setProviders, setTarget, setWebshell, setAuthKey,
+    setExecMode, setProviders, setTarget, setWebshell, setAuthKey, setLegacyTls,
     setConfigText, setSliverConnected, setActiveSessionName, setPluginStatus, setPluginConfigValue,
     setMythicUrl, setMythicUsername, setMythicPassword, setMythicApiToken, setMythicConnected, setActiveCallbackName,
     setCommand, appendOutput, popOutput, clearOutput, pushHistory,
@@ -269,7 +269,7 @@ export default function Executor() {
       } else if (execMode === 'mythic') {
         await runMythicCommand(cmd)
       } else if (execMode === 'webshell') {
-        const res = await api.execute(target, webshell, authKey, cmd)
+        const res = await api.execute(target, webshell, authKey, cmd, legacyTls)
         if (res.error) {
           appendOutput({ type: 'err', text: res.error })
         } else {
@@ -547,6 +547,18 @@ export default function Executor() {
                 placeholder="UUID auth key"
                 className="w-full bg-surface-input text-xs px-2 py-1.5 rounded-sm border border-border"
               />
+            </div>
+            <div className="md:col-span-3 flex items-center gap-2">
+              <input
+                id="legacy-tls-toggle"
+                type="checkbox"
+                checked={legacyTls}
+                onChange={(e) => setLegacyTls(e.target.checked)}
+                className="accent-accent cursor-pointer"
+              />
+              <label htmlFor="legacy-tls-toggle" className="text-xs text-content-muted cursor-pointer select-none">
+                Legacy TLS (TLS 1.0) — enable for CentOS 6 / old Apache targets
+              </label>
             </div>
           </div>
         ) : execMode === 'sliver' ? (
