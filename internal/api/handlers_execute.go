@@ -10,10 +10,11 @@ import (
 
 func (s *APIServer) handleExecute(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Target   string `json:"target"`
-		Webshell string `json:"webshell"`
-		AuthKey  string `json:"authKey"`
-		Command  string `json:"command"`
+		Target    string `json:"target"`
+		Webshell  string `json:"webshell"`
+		AuthKey   string `json:"authKey"`
+		Command   string `json:"command"`
+		LegacyTLS bool   `json:"legacyTls"` // set true for TLS 1.0 targets (e.g. CentOS 6)
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -25,7 +26,7 @@ func (s *APIServer) handleExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := proxy.NewHTTPClient("", s.transport)
+	client := proxy.NewHTTPClient("", s.transport, body.LegacyTLS)
 	output, err := shell.ExecuteCommand(body.Target, body.Webshell, body.AuthKey, body.Command, client)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]string{
