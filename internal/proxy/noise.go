@@ -55,6 +55,8 @@ func defaultNoisePatterns() []NoisePattern {
 		"captive.apple.com",
 		// Microsoft
 		"crl.microsoft.com",
+		// Brave
+		"detectportal.brave-http-only.com",
 	}
 	patterns := make([]NoisePattern, len(hosts))
 	for i, h := range hosts {
