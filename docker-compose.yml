@@ -1,14 +1,10 @@
 networks:
-  traefik:
+  selvedge:
     external: true
   joro:
     name: joro
     driver: bridge
     internal: false
-    ipam:
-      driver: default
-      config:
-        - subnet: "172.18.29.0/24"
     driver_opts:
       com.docker.network.bridge.name: "joro"
       com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
@@ -47,7 +43,7 @@ services:
     restart: unless-stopped
     networks:
       - joro
-      - traefik
+      - selvedge
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.joro.service=joro"
@@ -88,7 +84,7 @@ services:
     restart: unless-stopped
     networks:
       - joro
-      - traefik
+      - selvedge
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.joro.service=joro"
@@ -130,7 +126,7 @@ services:
     restart: unless-stopped
     networks:
       - joro
-      - traefik
+      - selvedge
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.joro.service=joro"
