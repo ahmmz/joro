@@ -75,7 +75,7 @@ func registerPrivileged(r *capability.Registry, d Deps) {
 				return nil, fmt.Errorf("command is %d bytes, over the %d byte limit",
 					len(args.Command), maxWebshellCommand)
 			}
-			client := proxy.NewHTTPClient("", d.Transport)
+			client := proxy.NewHTTPClient("", d.Transport, false)
 			out, err := shell.ExecuteCommand(args.Target, args.Webshell, args.AuthKey, args.Command, client)
 			capability.RecordChange(ctx, "webshell exec on %s", args.Target)
 			if err != nil {
