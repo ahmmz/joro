@@ -29,12 +29,18 @@ services:
       context: .
       dockerfile: Dockerfile
       tags: [ "joro/joro:latest" ]
-      args: [ "UID=${PUID}", "GID=${PGID}" ]
+      args: [ "UID=${PUID:-1000}", "GID=${PGID:-1000}" ]
     pull_policy: never
     container_name: joro-proxy
     ports:
       - "9090:9090"         # Control UI / API Port
       - "0.0.0.0:8080:8080" # Intercepting Proxy port
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$${PORT:-3000}/api/monitoring/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     environment:
       <<: *joro-env
       JORO_PROXY_PORT: ${JORO_PROXY_PORT:-8080}
@@ -58,7 +64,7 @@ services:
       context: .
       dockerfile: Dockerfile
       tags: [ "joro/joro:latest" ]
-      args: [ "UID=${PUID}", "GID=${PGID}" ]
+      args: [ "UID=${PUID:-1000}", "GID=${PGID:-1000}" ]
     pull_policy: never
     container_name: joro-listener
     profiles:
@@ -70,6 +76,12 @@ services:
       - "443:1443"       # Host HTTPS mapped to unprivileged container port 1443 (set JORO_HTTPS_PORT=0 to disable)
       - "25:1025"         # Host SMTP mapped to unprivileged container port 1025 (set JORO_SMTP_PORT=0 to disable)
       - "465:1465"       # Host SMTPS mapped to unprivileged container port 1465 (set JORO_SMTPS_PORT=0 to disable)
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$${PORT:-3000}/api/monitoring/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     environment:
       <<: *joro-env
       JORO_LISTENER: ${JORO_LISTENER:-true}
@@ -99,7 +111,7 @@ services:
       context: .
       dockerfile: Dockerfile
       tags: [ "joro/joro:latest" ]
-      args: [ "UID=${PUID}", "GID=${PGID}" ]
+      args: [ "UID=${PUID:-1000}", "GID=${PGID:-1000}" ]
     pull_policy: never
     container_name: joro-teamserver
     profiles:
@@ -111,6 +123,12 @@ services:
       - "443:1443"       # Host HTTPS mapped to unprivileged container port 1443
       - "25:1025"         # Host SMTP mapped to unprivileged container port 1025
       - "465:1465"       # Host SMTPS mapped to unprivileged container port 1465
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:$${PORT:-3000}/api/monitoring/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     environment:
       <<: *joro-env
       JORO_LISTENER: "true"

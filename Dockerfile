@@ -26,10 +26,8 @@ COPY . .
 COPY --from=frontend-builder /app/web/dist ./web/dist
 
 # Build the final static-ish binary with plugin support enabled (CGO_ENABLED=1)
-RUN CGO_ENABLED=1 GOOS=linux go build \
-    -tags="netgo,osusergo" \
-    -ldflags="-s -w -X main.commit=${COMMIT}" \
-    -o joro .
+RUN CGO_ENABLED=1 GOOS=linux \
+    go build -tags="netgo,osusergo" -ldflags="-s -w -X main.commit=${COMMIT}" -o joro .
 
 # Stage 3: Minimal, clean runtime container
 FROM alpine:latest
