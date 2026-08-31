@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import type { PluginInfo } from '../lib/api'
 import ProjectBrowser from '../components/ProjectBrowser'
 import AutomationSettings from '../components/AutomationSettings'
+import WebhookSettings from '../components/webhooks/WebhookSettings'
 import PluginSettings from '../components/PluginSettings'
 import { Settings, isTeamMode, useSettingsStore } from '../stores/settingsStore'
 import { useUpdateStore } from '../stores/updateStore'
@@ -15,7 +16,8 @@ import HealthCheck from '../components/HealthCheck'
 import { useToastStore } from '../stores/toastStore'
 import { getBrowserPrefs, setBrowserPrefs } from '../lib/browserPrefs'
 import { NAV } from '../lib/nav'
-import { Settings as SettingsIcon, Palette, Folder, AppWindow, Blocks, Bot } from 'lucide-react'
+import { useStreamerStore } from '../stores/streamerStore'
+import { Settings as SettingsIcon, Palette, Folder, AppWindow, Blocks, Bot, Webhook } from 'lucide-react'
 
 const THEMES = [
   { value: 'aomori', label: 'Aomori' },
@@ -38,7 +40,7 @@ const THEMES = [
   { value: 'tokyo', label: 'Tokyo' },
 ]
 
-type Category = 'project' | 'general' | 'appearance' | 'testing' | 'plugins' | 'automation'
+type Category = 'project' | 'general' | 'appearance' | 'testing' | 'plugins' | 'automation' | 'webhooks'
 
 const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
   {
@@ -70,6 +72,11 @@ const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
     id: 'automation',
     label: 'Automation',
     icon: <Bot size={15} strokeWidth={1.7} aria-hidden="true" />,
+  },
+  {
+    id: 'webhooks',
+    label: 'Webhooks',
+    icon: <Webhook size={15} strokeWidth={1.7} aria-hidden="true" />,
   },
 ]
 
@@ -134,6 +141,7 @@ export default function SettingsPage() {
   const [interceptTimeout, setInterceptTimeout] = useState(60)
   const [maxRequests, setMaxRequests] = useState(5000)
   const [unknownPluginStatesNotice, setUnknownPluginStatesNotice] = useState<string[]>([])
+  const streamerOn = useStreamerStore((s) => s.enabled)
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('joro-theme') || document.documentElement.getAttribute('data-theme') || 'bishop-fox'
   })
@@ -230,13 +238,14 @@ export default function SettingsPage() {
         })}
       </nav>
 
-      {/* Content pane. Plugins and Automation are full-bleed rather than
-          padded-and-scrolling: the former's feature-plugin sub-tabs are iframes and the
-          latter's script editor is a CodeMirror instance, and both need a real height —
-          a block parent gives a `flex-1` child none. Both supply their own padding. */}
+      {/* Content pane. Plugins, Automation and Webhooks are full-bleed rather than
+          padded-and-scrolling: the first's feature-plugin sub-tabs are iframes, the second's
+          script editor is a CodeMirror instance, and the third is a rail beside an editor —
+          all three need a real height, and a block parent gives a `flex-1` child none. Each
+          supplies its own padding. */}
       <div className="flex-1 min-h-0">
         <div className={`h-full bg-surface-card rounded-lg shadow-sm ${
-          category === 'plugins' || category === 'automation'
+          category === 'plugins' || category === 'automation' || category === 'webhooks'
             ? 'flex flex-col overflow-hidden'
             : 'overflow-y-auto p-5'
         }`}>
@@ -244,6 +253,9 @@ export default function SettingsPage() {
 
           {/* Automation fetches its own data, so it needs no settings guard. */}
           {category === 'automation' && <AutomationSettings />}
+
+          {/* Webhooks likewise, and it is available with no automation flag at all. */}
+          {category === 'webhooks' && <WebhookSettings />}
 
           {category === 'plugins' && (
             <PluginSettings plugins={plugins} onRefresh={refreshPlugins} />
@@ -278,11 +290,11 @@ export default function SettingsPage() {
                   <SubLabel>SOCKS upstream</SubLabel>
                   <div className="space-y-1.5">
                     <div className="flex gap-1.5">
-                      <input type="text" placeholder="Host" value={socksHost} onChange={(e) => setSocksHost(e.target.value)} className={`flex-1 min-w-0 ${inputCls}`} />
+                      <input type="text" placeholder="Host" value={socksHost} onChange={(e) => setSocksHost(e.target.value)} className={`flex-1 min-w-0 joro-redact-field ${inputCls}`} />
                       <input type="number" placeholder="Port" value={socksPort} onChange={(e) => setSocksPort(e.target.value)} className={`w-20 ${inputCls}`} />
                     </div>
                     <div className="flex gap-1.5">
-                      <input type="text" placeholder="User" value={socksUsername} onChange={(e) => setSocksUsername(e.target.value)} className={`flex-1 min-w-0 ${inputCls}`} />
+                      <input type="text" placeholder="User" value={socksUsername} onChange={(e) => setSocksUsername(e.target.value)} className={`flex-1 min-w-0 joro-redact-field ${inputCls}`} />
                       <input type="password" placeholder="Password" value={socksPassword} onChange={(e) => setSocksPassword(e.target.value)} className={`flex-1 min-w-0 ${inputCls}`} />
                     </div>
                   </div>
@@ -445,6 +457,27 @@ export default function SettingsPage() {
                 </Row>
               </Group>
 
+              <Group title="Streamer mode">
+                <Rows>
+                  <Row
+                    label="Hide infrastructure"
+                    title="Replace identifying values with black bars for screen capture"
+                  >
+                    <Switch checked={streamerOn} onChange={(v) => useStreamerStore.getState().setEnabled(v)} />
+                  </Row>
+                </Rows>
+                <p className="text-[11px] text-content-muted mt-2">
+                  Bars over the network graph, proxy health, connection and listener config, project
+                  and operator names, callback tokens and domains, C2 addresses, and local paths.
+                  Toggle from the header or with Ctrl/Cmd+Shift+.
+                </p>
+                <p className="text-[11px] text-semantic-warning mt-1.5">
+                  Captured traffic is not covered: History, Site Map, Detect, the raw request and
+                  response viewers, rendered responses, and plugin tabs keep real values. Guards
+                  against screen capture, not storage — exports and project files are unchanged.
+                </p>
+              </Group>
+
               <Group title="Visible tabs">
                 <p className="text-[11px] text-content-muted mb-2">Hide tabs you don't use from the header nav.</p>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5">
@@ -489,7 +522,7 @@ export default function SettingsPage() {
                       setBrowserPrefs({ url: e.target.value })
                     }}
                     placeholder="about:blank"
-                    className={`w-full ${inputCls}`}
+                    className={`w-full joro-redact-field ${inputCls}`}
                   />
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-2">

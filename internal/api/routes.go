@@ -26,7 +26,6 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/callbacks/interactions", s.handleListInteractions)
 	mux.HandleFunc("DELETE /api/v1/callbacks/interactions", s.handleClearInteractions)
 	mux.HandleFunc("GET /api/v1/callbacks/config", s.handleGetCallbackConfig)
-	mux.HandleFunc("PUT /api/v1/callbacks/config", s.handleUpdateCallbackConfig)
 
 	// XSS Hunter routes (both modes - handler logic differs per mode)
 	mux.HandleFunc("GET /api/v1/xss/probes", s.handleListProbes)
@@ -275,6 +274,10 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 		mux.HandleFunc("PUT /api/v1/automation/mcp", s.handleSetMCPState)
 		mux.HandleFunc("GET /api/v1/automation/runs", s.handleListScriptRuns)
 		mux.HandleFunc("GET /api/v1/automation/runs/{id}", s.handleGetScriptRun)
+		// {name...} rather than {name}: a command's artifacts can sit in a directory it
+		// created, so the remainder of the path is the file name. jsautomation.ArtifactPath
+		// is what refuses one that would escape the run's own directory.
+		mux.HandleFunc("GET /api/v1/automation/runs/{id}/artifacts/{name...}", s.handleGetRunArtifact)
 		mux.HandleFunc("POST /api/v1/automation/runs", s.handleRunScript)
 		mux.HandleFunc("DELETE /api/v1/automation/runs", s.handleClearScriptRuns)
 		mux.HandleFunc("GET /api/v1/automation/scripts", s.handleListScripts)
@@ -284,8 +287,33 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 		mux.HandleFunc("DELETE /api/v1/automation/scripts/{id}", s.handleDeleteScript)
 		mux.HandleFunc("PUT /api/v1/automation/scripts/{id}/enabled", s.handleSetScriptEnabled)
 		mux.HandleFunc("PUT /api/v1/automation/scripts/{id}/prefs", s.handleSetScriptPrefs)
+		mux.HandleFunc("GET /api/v1/automation/triggers", s.handleListTriggers)
+		mux.HandleFunc("POST /api/v1/automation/triggers", s.handleCreateTrigger)
+		mux.HandleFunc("POST /api/v1/automation/triggers/test", s.handleTestTrigger)
+		mux.HandleFunc("GET /api/v1/automation/triggers/seed", s.handleSeedTrigger)
+		mux.HandleFunc("GET /api/v1/automation/triggers/{id}", s.handleGetTrigger)
+		mux.HandleFunc("PUT /api/v1/automation/triggers/{id}", s.handleUpdateTrigger)
+		mux.HandleFunc("DELETE /api/v1/automation/triggers/{id}", s.handleDeleteTrigger)
 		mux.HandleFunc("GET /api/v1/automation/sdk", s.handleScriptSDK)
+		mux.HandleFunc("GET /api/v1/automation/limits", s.handleGetScriptBudget)
+		mux.HandleFunc("PUT /api/v1/automation/limits", s.handleSetScriptBudget)
 	}
+
+	// Webhooks. Registered unconditionally with every handler gated on requireWebhooks,
+	// for the same reason the automation block is: an unregistered route falls through to
+	// the SPA catch-all and answers 200 with HTML rather than 404 with JSON.
+	//
+	// Outside that block because a webhook is not part of the automation surface. It needs
+	// none of the three automation flags, and an operator who wants a finding in their team
+	// channel should not have to arm an agent to get one.
+	mux.HandleFunc("GET /api/v1/webhooks", s.handleListWebhooks)
+	mux.HandleFunc("POST /api/v1/webhooks", s.handleCreateWebhook)
+	mux.HandleFunc("GET /api/v1/webhooks/{id}", s.handleGetWebhook)
+	mux.HandleFunc("PUT /api/v1/webhooks/{id}", s.handleUpdateWebhook)
+	mux.HandleFunc("DELETE /api/v1/webhooks/{id}", s.handleDeleteWebhook)
+	mux.HandleFunc("PUT /api/v1/webhooks/{id}/enabled", s.handleSetWebhookEnabled)
+	mux.HandleFunc("POST /api/v1/webhooks/{id}/test", s.handleTestWebhook)
+	mux.HandleFunc("GET /api/v1/webhooks/{id}/deliveries", s.handleListWebhookDeliveries)
 
 	// Plugin routes (dynamic, based on loaded plugins).
 	registerPluginRoutes(s, mux)

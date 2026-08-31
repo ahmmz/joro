@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -26,8 +25,12 @@ func (s *APIServer) handleBrowserLaunch(w http.ResponseWriter, r *http.Request) 
 	var body struct {
 		URL string `json:"url"`
 	}
-	if r.Body != nil {
-		json.NewDecoder(r.Body).Decode(&body) //nolint:errcheck
+	// Optional: launching with no start URL is the common case. A body that was sent and
+	// could not be read is reported rather than ignored — silently launching at the
+	// default page would look like the requested URL was simply refused.
+	if err := decodeJSONOptional(r, &body, maxJSONBody); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
 	}
 
 	path, name, ok := browser.Find()
@@ -86,12 +89,17 @@ func (s *APIServer) browserProfile() (key, dir string, ephemeral bool) {
 	active := s.activeProjectConfig
 	s.mu.RUnlock()
 	ephemeral = active == ""
-	key = active
-	if key == "" {
-		key = "default"
-	}
-	key = sanitizeProfileKey(key)
-	return key, filepath.Join(s.cfg.DataDir, "browser-profiles", key), ephemeral
+	key = sanitizeProfileKey(active)
+	return key, s.profileDirFor(active), ephemeral
+}
+
+// profileDirFor maps a project name to its testing-browser profile directory.
+// The empty name is the no-project "default" profile. Every caller that needs a
+// profile path goes through here, so the name-to-directory mapping has one
+// definition — deleting a project's profile must resolve to the same directory
+// the launch created.
+func (s *APIServer) profileDirFor(project string) string {
+	return filepath.Join(s.cfg.DataDir, "browser-profiles", sanitizeProfileKey(project))
 }
 
 // sanitizeProfileKey maps a project name to a filesystem-safe directory name.

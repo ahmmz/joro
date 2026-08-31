@@ -13,6 +13,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/BishopFox/joro/internal/browser"
 	"github.com/BishopFox/joro/internal/configstore"
 	"github.com/BishopFox/joro/internal/detect"
 	"github.com/BishopFox/joro/internal/proxy"
@@ -557,6 +558,15 @@ func (s *APIServer) liveStateSignature() string {
 // saveHistory pref), refreshes its sidecar, and marks it active. Shared by the
 // manual save handler, the switch handler, and the auto-save loop.
 func (s *APIServer) saveProject(name string) error {
+	s.projectFileMu.Lock()
+	defer s.projectFileMu.Unlock()
+	return s.saveProjectLocked(name)
+}
+
+// saveProjectLocked is saveProject's body, callable by a caller that already
+// holds projectFileMu because its decision to save has to be atomic with the
+// write — see autoSaveTick.
+func (s *APIServer) saveProjectLocked(name string) error {
 	autoSave, saveHistory := s.resolveProjectPrefs(name)
 	cfg := s.buildProjectConfig(autoSave, saveHistory)
 	gzBytes, err := gzipJSON(cfg)
@@ -907,7 +917,7 @@ func (s *APIServer) handleSaveUserConfig(w http.ResponseWriter, r *http.Request)
 		HiddenTabs      []string        `json:"hiddenTabs"`
 		DashboardLayout json.RawMessage `json:"dashboardLayout"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1059,7 +1069,7 @@ func (s *APIServer) handleSaveProjectConfig(w http.ResponseWriter, r *http.Reque
 	var body struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1117,7 +1127,7 @@ func (s *APIServer) handleSwitchProject(w http.ResponseWriter, r *http.Request) 
 		Action        string `json:"action"`
 		SaveScratchAs string `json:"saveScratchAs"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1201,7 +1211,7 @@ func (s *APIServer) handleSetProjectPrefs(w http.ResponseWriter, r *http.Request
 		AutoSave    *bool  `json:"autoSave"`
 		SaveHistory *bool  `json:"saveHistory"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1209,6 +1219,11 @@ func (s *APIServer) handleSetProjectPrefs(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Held across the existence check and the sidecar rewrite so a concurrent
+	// delete cannot leave a .meta.json behind with no project to describe.
+	s.projectFileMu.Lock()
+	defer s.projectFileMu.Unlock()
+
 	if _, statErr := s.configStore.Stat("project", body.Name); statErr != nil {
 		writeError(w, http.StatusNotFound, "project not found")
 		return
@@ -1239,7 +1254,7 @@ func (s *APIServer) handleNewProject(w http.ResponseWriter, r *http.Request) {
 		Action        string `json:"action"`
 		SaveScratchAs string `json:"saveScratchAs"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1299,18 +1314,51 @@ func (s *APIServer) handleNewProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "created", "name": body.Name, "empty": body.Empty})
 }
 
+// handleDeleteProjectConfig removes a project's files and its testing-browser
+// profile. Deleting the active project deliberately does NOT call
+// resetLiveProjectState: the file goes, but the operator's loaded traffic, notes
+// and findings stay put as an unnamed scratch session they can save under a new
+// name. Only the name is dropped.
 func (s *APIServer) handleDeleteProjectConfig(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
-	if err := s.configStore.DeleteAll("project", name); err != nil {
+	if err := configstore.ValidateName(name); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	wasActive := false
+	err := func() error {
+		s.projectFileMu.Lock()
+		defer s.projectFileMu.Unlock()
+
+		// Clearing the active name inside the file lock is half of the pair that
+		// keeps a deleted project deleted: autoSaveTick re-reads the name after
+		// taking this same lock, so it observes either a name to save or the
+		// blank we leave here, never a name whose file we are about to unlink.
+		s.mu.Lock()
+		if s.activeProjectConfig == name {
+			s.activeProjectConfig = ""
+			wasActive = true
+		}
+		s.mu.Unlock()
+
+		return s.configStore.DeleteAll("project", name)
+	}()
+	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	s.mu.Lock()
-	if s.activeProjectConfig == name {
-		s.activeProjectConfig = ""
+
+	// Best-effort: the profile holds this engagement's cookies and has no meaning
+	// without the project. A failure here is not the operator's problem to
+	// retry — the project file is already gone, so reporting 500 would say the
+	// delete failed when it did not. The usual cause is a testing browser still
+	// open on the profile.
+	if err := browser.RemoveProfile(s.profileDirFor(name)); err != nil {
+		log.Printf("[project] deleted %q but its browser profile remains: %v", name, err)
 	}
-	s.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+
+	writeJSON(w, http.StatusOK, map[string]any{"status": "deleted", "wasActive": wasActive})
 }
 
 // --- Shared project config export/import + collaboration apply ---
@@ -1356,7 +1404,8 @@ func (s *APIServer) handleImportSharedConfig(w http.ResponseWriter, r *http.Requ
 		Name   string `json:"name"`
 		Config string `json:"config"` // base64(gzipped projectConfigFile)
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	// Config is a whole project snapshot, history included, gzipped then base64'd.
+	if err := decodeJSONLimit(r, &body, maxProjectImportBytes); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
@@ -1409,7 +1458,8 @@ func (s *APIServer) handleApplySharedConfig(w http.ResponseWriter, r *http.Reque
 		Config sharedConfigPayload `json:"config"`
 		Mode   string              `json:"mode"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	// Bulk: a shared config carries whole scope and Match & Replace rule sets.
+	if err := decodeJSONLimit(r, &body, maxBulkJSONBody); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

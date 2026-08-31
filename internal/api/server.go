@@ -33,7 +33,9 @@ import (
 	"github.com/BishopFox/joro/internal/proxy"
 	"github.com/BishopFox/joro/internal/sliver"
 	"github.com/BishopFox/joro/internal/team"
+	"github.com/BishopFox/joro/internal/trigger"
 	"github.com/BishopFox/joro/internal/update"
+	"github.com/BishopFox/joro/internal/webhook"
 	"github.com/BishopFox/joro/internal/xsshunter"
 	joroweb "github.com/BishopFox/joro/web"
 )
@@ -119,17 +121,40 @@ type APIServer struct {
 	autoStore   *automation.Store
 	capContexts *httptools.Contexts
 	mcpListener *mcp.Listener
-	// scriptManager runs sandboxed JavaScript against the registry. Nil unless
-	// --automation-scripting was given, which is what keeps script.run unregistered.
+	// scriptManager runs installed automations: sandboxed JavaScript against the
+	// registry, and local commands. Nil unless at least one of --automation-scripting
+	// and --automation-commands was given.
+	//
+	// Non-nil is therefore no longer the same question as "is scripting on", which it
+	// was when this held one kind. Use scriptingEnabled and commandsEnabled — the two
+	// flags are separate axes and each gates a different half.
 	scriptManager *jsautomation.Manager
+	// scriptRuntimeReady records that a worker runtime could be built, which needs
+	// os.Executable to work. False disables scripting outright rather than leaving
+	// script.run registered and failing on every call.
+	scriptRuntimeReady bool
 	// automationStorage is joro.storage: per-automation key/value state that rides in
 	// the project config like plugin state, because it describes one engagement.
 	automationStorage *jsautomation.Storage
-	// scriptTriggers watches Joro's events and runs armed automations. Nil unless
-	// scripting is on; handlers ring its doorbell after a change so an enable takes
+	// scriptTriggers watches Joro's events and runs armed automations. Nil unless the
+	// manager exists; handlers ring its doorbell after a change so an enable takes
 	// effect immediately rather than on the next 250ms tick.
 	scriptTriggers *jsautomation.Dispatcher
-	automationMu   sync.Mutex // serializes MCP start/stop from HTTP handlers
+	// triggers holds the operator's custom triggers, which automations reference by id.
+	// Global rather than per-project, because the automations referencing them are: a
+	// per-project store would resolve on one engagement and dangle on the next. Nil when
+	// the file could not be read, which disables the feature loudly rather than presenting
+	// an empty set — see requireTriggers.
+	triggers     *trigger.Store
+	automationMu sync.Mutex // serializes MCP start/stop from HTTP handlers
+
+	// The webhook feature. Independent of automation: an operator wanting a finding in
+	// their team channel should not have to arm an agent to get one, so these are built in
+	// New rather than in SetAutomation and are nil only under --no-webhooks or when
+	// webhooks.json could not be read. See webhook_wire.go.
+	webhooks        *webhook.Store
+	webhookDeliver  *webhook.Deliverer
+	webhookDispatch *webhook.Dispatcher
 
 	buildInfo  BuildInfo
 	cancelFunc context.CancelFunc
@@ -138,6 +163,14 @@ type APIServer struct {
 	sessionID string
 
 	highlights map[string]string // requestID → highlight color name
+
+	// projectFileMu serializes every mutation of a project's on-disk files: the
+	// .joro written by saveProject, its .meta.json sidecar, and the delete that
+	// removes both. Without it an auto-save tick that has already passed its
+	// active-project check can SaveGzip the file a concurrent delete just
+	// unlinked, resurrecting a deleted project as a .joro with no sidecar.
+	// Lock order is projectFileMu then mu, never the reverse.
+	projectFileMu sync.Mutex
 
 	mu                  sync.RWMutex
 	settings            Settings
@@ -196,7 +229,7 @@ func New(
 	// holds no reference to it, since the scanner pulls from the capture store.
 	detectEngine := detect.NewEngine()
 	detectFindings := detect.NewStore(0)
-	return &APIServer{
+	s := &APIServer{
 		cfg:           cfg,
 		store:         store,
 		intercept:     intercept,
@@ -238,6 +271,12 @@ func New(
 			DisableUpdateChecks: cfg.DisableUpdateChecks,
 		},
 	}
+	// Both stores are built here rather than in SetAutomation, because both outlive
+	// automation: a webhook references a trigger, and neither needs an agent to be useful.
+	// See initTriggers for why the trigger store moved out of newScriptManager.
+	s.initTriggers()
+	s.initWebhooks()
+	return s
 }
 
 // RestartRequested returns true if the server was shut down for a restart (e.g. after update).
@@ -345,6 +384,9 @@ func (s *APIServer) Start(ctx context.Context) error {
 		// Bring up the persisted MCP listener state and the token flush loop.
 		// No-ops entirely when automation was not configured.
 		s.startAutomation(ctx)
+		// No-ops entirely under --no-webhooks. Started after automation so the run
+		// watcher startScriptTriggers registers is already in place.
+		s.startWebhooks(ctx)
 	}
 
 	// Serve frontend (skip in listener mode - listener is API-only).
@@ -371,6 +413,10 @@ func (s *APIServer) Start(ctx context.Context) error {
 		// Proxy mode: restrict the API to same-origin browser requests.
 		handler = originGuard(uiBind, s.cfg.AllowedHosts, handler)
 	}
+	// Outermost, and in both modes: this origin can reach the whole API, so a single
+	// injection on it is not a cosmetic bug. Applied outside the auth middleware so a
+	// rejected request carries the policy too — a 403 body is still a document.
+	handler = securityHeaders(s.cfg.Dev, handler)
 
 	s.srv = &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", uiBind, s.cfg.UIPort),

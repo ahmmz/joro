@@ -14,7 +14,7 @@ import (
 const (
 	DefaultHistoryLimit = 50
 	MaxHistoryLimit     = 200
-	MaxFingerprintRefs  = 50
+	MaxFingerprintSeqs  = 50
 )
 
 // HistoryArgs maps one-to-one onto proxy.RequestFilter, so this tool adds no
@@ -86,6 +86,12 @@ func ListHistory(store *proxy.Store, scope *proxy.Scope, args HistoryArgs) strin
 
 	t := newTable(cols...)
 	t.empty = "(no requests matched)"
+	// Only diagnose a genuinely empty match. A page emptied by an offset past the
+	// end is already explained by the n=0/<total> off=<n> preamble, and blaming
+	// the filters there would send the caller after the wrong thing.
+	if total == 0 {
+		t.empty = emptyHint(store, args.Host)
+	}
 	note := fmt.Sprintf("n=%d/%d off=%d", len(items), total, f.Offset)
 	if common != "" {
 		note += " host=" + common
@@ -140,6 +146,58 @@ func pathOf(rawURL string) string {
 		p += "?" + u.RawQuery
 	}
 	return truncRunes(p, 120)
+}
+
+// maxHintHosts caps the host list in an empty-result hint. The hint exists to
+// orient a caller who guessed wrong, not to substitute for history_stats, which
+// is where a full enumeration belongs.
+const maxHintHosts = 10
+
+// emptyHint is the sentence a listing renders in place of rows. An empty result
+// with no explanation is indistinguishable from an empty capture store, so a
+// caller that mistyped a host reads it as "the proxy captured nothing" and stops
+// — the failure this hint exists to prevent.
+//
+// It separates the two reasons a host-filtered listing comes back empty, because
+// conflating them sends the caller after the wrong one: either no captured host
+// contains the substring, in which case naming what was captured is the answer,
+// or the host matched and some other filter emptied the result, in which case
+// the host is a dead end. With no host filter at all there is nothing to
+// diagnose beyond whether anything was captured.
+func emptyHint(store *proxy.Store, host string) string {
+	captured := store.Count()
+	if captured == 0 {
+		return "(no requests captured yet)"
+	}
+
+	hosts := store.Hosts()
+	if strings.TrimSpace(host) == "" {
+		return fmt.Sprintf("(no request matched; %d captured across %d hosts)", captured, len(hosts))
+	}
+
+	var matched []string
+	needle := strings.ToLower(host)
+	for _, h := range hosts {
+		if strings.Contains(strings.ToLower(h), needle) {
+			matched = append(matched, h)
+		}
+	}
+	if len(matched) > 0 {
+		return fmt.Sprintf("(host matched %s, but no request passed the other filters)",
+			strings.Join(truncHosts(matched), ", "))
+	}
+
+	return fmt.Sprintf("(no captured host matches %q; %d requests captured across %d hosts: %s)",
+		host, captured, len(hosts), strings.Join(truncHosts(hosts), ", "))
+}
+
+// truncHosts caps a host list, naming history_stats as the way to see the rest.
+func truncHosts(hosts []string) []string {
+	if len(hosts) <= maxHintHosts {
+		return hosts
+	}
+	return append(hosts[:maxHintHosts:maxHintHosts],
+		fmt.Sprintf("[%d more; use history_stats]", len(hosts)-maxHintHosts))
 }
 
 func commonHost(items []*proxy.CapturedRequest) string {
@@ -206,6 +264,9 @@ func HistoryStats(store *proxy.Store, scope *proxy.Scope, args HistoryArgs) stri
 
 	t := newTable("n", "host")
 	t.empty = "(no hosts)"
+	if total == 0 {
+		t.empty = emptyHint(store, args.Host)
+	}
 	for i, h := range hosts {
 		if i >= 25 {
 			t.note(fmt.Sprintf("[%d more hosts; filter with host=]", len(hosts)-25))
@@ -219,37 +280,37 @@ func HistoryStats(store *proxy.Store, scope *proxy.Scope, args HistoryArgs) stri
 
 // FingerprintArgs is the argument shape of http.fingerprint.
 type FingerprintArgs struct {
-	Ref    int    `json:"ref"`
-	Refs   []int  `json:"refs"`
+	Seq    int    `json:"seq" alias:"ref"`
+	Seqs   []int  `json:"seqs" alias:"refs"`
 	Fields string `json:"fields"` // "+fullhash"
 }
 
-// FingerprintRefs computes fingerprints for one or more captured responses.
-func FingerprintRefs(store *proxy.Store, args FingerprintArgs) (string, error) {
-	refs := args.Refs
-	if args.Ref > 0 {
-		refs = append([]int{args.Ref}, refs...)
+// FingerprintSeqs computes fingerprints for one or more captured responses.
+func FingerprintSeqs(store *proxy.Store, args FingerprintArgs) (string, error) {
+	seqs := args.Seqs
+	if args.Seq > 0 {
+		seqs = append([]int{args.Seq}, seqs...)
 	}
-	if len(refs) == 0 {
-		return "", fmt.Errorf("ref or refs is required")
+	if len(seqs) == 0 {
+		return "", fmt.Errorf("seq or seqs is required")
 	}
-	if len(refs) > MaxFingerprintRefs {
-		return "", fmt.Errorf("%d refs exceeds the %d-ref limit; call again with a smaller set", len(refs), MaxFingerprintRefs)
+	if len(seqs) > MaxFingerprintSeqs {
+		return "", fmt.Errorf("%d seqs exceeds the %d-seq limit; call again with a smaller set", len(seqs), MaxFingerprintSeqs)
 	}
 	wantFull := strings.Contains(args.Fields, "+fullhash")
 
-	fps := make([]Fingerprint, 0, len(refs))
-	for _, ref := range refs {
-		item := store.GetBySeq(ref)
+	fps := make([]Fingerprint, 0, len(seqs))
+	for _, seq := range seqs {
+		item := store.GetBySeq(seq)
 		if item == nil {
-			fps = append(fps, Fingerprint{Seq: ref, Err: "no captured request with this seq"})
+			fps = append(fps, Fingerprint{Seq: seq, Err: "no captured request with this seq"})
 			continue
 		}
 		if len(item.RespRaw) == 0 {
-			fps = append(fps, Fingerprint{Seq: ref, Err: "no response was captured"})
+			fps = append(fps, Fingerprint{Seq: seq, Err: "no response was captured"})
 			continue
 		}
-		fps = append(fps, fingerprintResponse(ref, item.RespRaw, item.Duration.Milliseconds(), wantFull))
+		fps = append(fps, fingerprintResponse(seq, item.RespRaw, item.Duration.Milliseconds(), wantFull))
 	}
 	return renderFingerprints(fps, wantFull), nil
 }

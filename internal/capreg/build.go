@@ -101,6 +101,13 @@ type Deps struct {
 	Scanner *detect.Scanner
 	BgCtx   func() context.Context
 
+	// Webhooks fires an endpoint the operator already configured, and lists the ones they
+	// opened to automation. Fire-only and ID-addressed: see caps_webhook.go for why there is
+	// no create, edit or resolve here, and why the interface is this narrow rather than the
+	// store itself. Zero when Joro was started with --no-webhooks, and the handlers report
+	// that rather than panicking.
+	Webhooks WebhookFirer
+
 	// Broadcast is the hub's channel, so a mutating capability can push the same WS
 	// events the REST handlers do — an agent editing the operator's configuration
 	// should be visible while it happens, not on next reload. Typed as chan<- any
@@ -136,6 +143,7 @@ func Build(d Deps, audit *capability.AuditLog) *capability.Registry {
 	registerWrites(r, d)
 	registerConfig(r, d)
 	registerDetect(r, d)
+	registerWebhook(r, d)
 	if d.Privileged {
 		registerPrivileged(r, d)
 	}
@@ -144,6 +152,9 @@ func Build(d Deps, audit *capability.AuditLog) *capability.Registry {
 	}
 
 	validateProfiles(r)
+	// Not inside the d.Scripting branch above: the bundle is a constant of the binary, so
+	// a bundle that must not ship should stop every start, not only the scripting ones.
+	validateBundle(r)
 	r.Seal()
 	return r
 }

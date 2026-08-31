@@ -244,11 +244,35 @@ export interface ScriptLogLine {
   text: string
 }
 
+/** How a run ended, as a stable code. Mirrors jsruntime's Outcome consts. `unknown` is
+ *  what an unmapped reason resolves to, so a newer server never reports a run as having
+ *  succeeded just because this client has not heard of its outcome. */
+export type ScriptOutcome =
+  // jsruntime: a sandboxed script run.
+  | 'success'
+  | 'exception'
+  | 'timeout'
+  | 'memory_limit'
+  | 'budget_exceeded'
+  | 'cancelled'
+  | 'denied'
+  | 'runtime_failure'
+  | 'worker_lost'
+  // localcmd: a local command run. `success`, `timeout` and `cancelled` are shared.
+  | 'exit_status'
+  | 'output_limit'
+  | 'spawn_failed'
+  | 'not_permitted'
+  | 'unknown'
+
 /** The outcome of one sandboxed script run. */
 export interface ScriptResult {
-  /** success | script exception | timeout | memory limit | sdk budget exceeded |
-   *  cancelled | capability denied | runtime failure | worker lost */
+  /** Prose for display, and free to be reworded: success | script exception | timeout |
+   *  memory limit | sdk budget exceeded | cancelled | capability denied | runtime failure |
+   *  worker lost. Branch on `outcome` instead. */
   reason: string
+  /** The stable code for the same fact. Compare against this. */
+  outcome: ScriptOutcome
   err?: string
   /** The JSON value run() returned, still encoded. */
   value?: unknown
@@ -261,6 +285,9 @@ export interface ScriptResult {
   storageOps?: number
   callInputBytes: number
   callOutputBytes: number
+  /** The budget this run was actually held to, after the operator's global was applied.
+   *  Reported so a count has something to be read against. */
+  budget?: AutomationLimits
   durationMs: number
 }
 
@@ -277,6 +304,10 @@ export interface ScriptRun {
    *  which code an agent ran, since a one-shot script has no stored artifact. */
   source?: string
   sourceHash: string
+  /** The policy the run was held to: inherited from the launching token, or from the
+   *  operator's scope configuration when no token launched it. */
+  requireScope: boolean
+  credentials: boolean
   result: ScriptResult
 }
 
@@ -290,6 +321,100 @@ export interface AutomationLimits {
   maxResultBytes?: number
 }
 
+/** Which execution half an installed automation uses. */
+export type AutomationKind = 'js' | 'command'
+
+/** A file a command run left in its working directory. */
+export interface CommandArtifact {
+  name: string
+  bytes: number
+  /** Past the run's artifact budget and deleted. Still listed, so a scanner whose report
+   *  directory did not fit says so rather than appearing to have written nothing. */
+  dropped?: boolean
+}
+
+/** What a command run returned. One shape for two readers: a lens takes `text` and
+ *  `language` and ignores the rest, which is why a command lens needed no new rendering
+ *  path; the run output panel also shows the exit code and the artifacts. */
+export interface CommandValue {
+  text: string
+  language?: string
+  exitCode: number
+  truncated?: boolean
+  /** `text` is base64 rather than the bytes themselves, because stdout was not valid
+   *  UTF-8. Flagged so binary output is not mistaken for a tool printing rubbish. */
+  binary?: boolean
+  artifacts?: CommandArtifact[]
+}
+
+/** The body of a command automation: what to run, and what to feed it.
+ *
+ *  `args` is a list and there is no field taking a command line as one string. The editor
+ *  offers one box, but it splits that text in the browser before saving and stores the
+ *  result here — see `lib/cmdline.ts`. No shell is ever involved, so the shape of argv is
+ *  settled before any captured byte is known, which is the property that stops bytes from
+ *  steering the command. */
+export interface CommandSpec {
+  /** The executable. The server resolves this through PATH at install time and stores the
+   *  absolute result, so the binary reviewed is the binary that runs. */
+  path: string
+  /** Arguments, after {{PLACEHOLDER}} substitution. A value drawn from captured traffic is
+   *  held to a grammar, and refused if it would start an argument with a dash. */
+  args?: string[]
+  /** What the command reads on standard input. Unbounded and binary-safe. */
+  stdin?: string
+  /** Where `{{INPUT}}` gets its bytes when an argument names it, in the same vocabulary as
+   *  `stdin`. Empty means no argument may name it. Bounded by the run's inline input
+   *  budget, text only, and visible to other processes on the host — which is why `stdin`
+   *  stays the delivery to reach for when any of that matters. */
+  inline?: string
+  /** Parts of the transaction written into the run's working directory before it starts.
+   *  The key is the placeholder that resolves to the file's path. */
+  files?: Record<string, string>
+  /** Added to a minimal base environment; `envPass` names variables inherited from Joro's
+   *  own. A whitelist, so the operator's shell credentials do not reach every run. */
+  env?: Record<string, string>
+  envPass?: string[]
+  /** Route the command's HTTP traffic through Joro's proxy, so it lands in History under
+   *  the same scope and rewriting rules. A default rather than a control: a command can
+   *  ignore it, and Joro cannot bound a subprocess's own dialing. */
+  useProxy?: boolean
+  /** Mask credential header values in whatever reaches the command, by any delivery. Off by
+   *  default, because replaying an authenticated request with a masked cookie tests
+   *  nothing. */
+  redact?: boolean
+  output?: string
+}
+
+/** One `{{PLACEHOLDER}}` as the editor's reference table shows it. */
+export interface CommandPlaceholder {
+  name: string
+  token: string
+  description: string
+  /** What a valid value looks like, in the words the server enforces. */
+  grammar: string
+  /** Trust class: `joro` for what Joro computed, `captured` for a validated value off the
+   *  wire, `input` for the transaction's own bytes. */
+  source: 'joro' | 'captured' | 'input'
+}
+
+/** The command vocabulary, served by the server so the editor's selects cannot offer
+ *  something it would refuse, and so nothing here restates a rule Go enforces. */
+export interface CommandMeta {
+  enabled: boolean
+  stdinModes: string[]
+  outputModes: string[]
+  fileParts: string[]
+  placeholders: CommandPlaceholder[]
+  /** Placeholder names each trigger supplies a value for, keyed by trigger id. A name used
+   *  under a trigger absent from its list has no value at run time and fails the run, which
+   *  is what lets the editor warn before that happens. */
+  availability: Record<string, string[]>
+  /** The bare name of the input placeholder (`INPUT`), so the editor's own handling of it
+   *  is keyed off the server rather than a literal. */
+  inputToken: string
+}
+
 /** Which half of a transaction a lens renders. */
 export type LensPart = 'request' | 'response' | 'both'
 
@@ -301,6 +426,236 @@ export interface AutomationLens {
   part: LensPart
 }
 
+/** One box on a trigger's canvas. Ports are implied by type: an edge out of the event
+ *  node carries the event, every other edge carries a true or false. */
+export type TriggerNodeType = 'event' | 'condition' | 'all' | 'any' | 'not' | 'fire'
+
+export interface TriggerNode {
+  id: string
+  type: TriggerNodeType
+  x: number
+  y: number
+  /** Condition nodes only. `field` and `op` must be a pairing the server's catalog
+   *  allows — see `fields` on the trigger list response, which is where the canvas's
+   *  selects come from. */
+  field?: string
+  op?: string
+  value?: string
+  negate?: boolean
+  /** String operators fold case unless this is set. */
+  caseSensitive?: boolean
+}
+
+export interface TriggerEdge {
+  from: string
+  to: string
+}
+
+export interface TriggerGraph {
+  nodes: TriggerNode[]
+  edges: TriggerEdge[]
+}
+
+/** The kinds of box an automation flow graph holds. The semantics live in lib/flowGraph.ts;
+ *  only the wire shape is here, next to TriggerGraph, so the module that reads a graph can
+ *  import the API's types without the API importing it back. */
+export type FlowNodeType =
+  | 'trigger'
+  | 'context'
+  | 'literal'
+  | 'get'
+  | 'template'
+  | 'arith'
+  | 'compare'
+  | 'all'
+  | 'any'
+  | 'not'
+  | 'select'
+  | 'call'
+  | 'storage'
+  | 'log'
+  | 'guard'
+  | 'each'
+  | 'return'
+  | 'body'
+
+/** Per-kind configuration. The server stores and bounds this without interpreting it — the
+ *  compiler in the browser is the only thing that reads these fields. */
+export interface FlowNodeData {
+  ref?: string
+  path?: 'input' | 'trigger' | 'run'
+  value?: string
+  get?: string
+  template?: string
+  op?: string
+  method?: string
+  args?: Record<string, string>
+  action?: string
+  key?: string
+}
+
+export interface FlowNode {
+  id: string
+  type: FlowNodeType
+  x: number
+  y: number
+  data?: FlowNodeData
+}
+
+/** One wire. Ports are named, unlike a trigger edge where the node type implies them: a call
+ *  node has one input per argument of the method it calls, so there is nothing to imply. */
+export interface FlowEdge {
+  from: string
+  /** Which output. Absent means the node's only output. */
+  fromPort?: string
+  to: string
+  toPort: string
+}
+
+/** The visual authoring document for a script automation.
+ *
+ *  Stored on the manifest, but never executed: the entrypoint .js is what runs, and the
+ *  graph only regenerates it on a save from the canvas. There is no hash of the source it
+ *  produced, because compilation is deterministic — recompiling and comparing is an exact
+ *  answer to "was this file edited outside Joro", where a stored hash would be a second
+ *  copy of the same fact that could go out of step with it. */
+export interface FlowGraph {
+  nodes: FlowNode[]
+  edges: FlowEdge[]
+}
+
+/** A trigger: an event, and the graph deciding which of those events is worth a run.
+ *
+ *  Built-ins are the raw events, synthesized by the server — read-only, with an empty
+ *  graph, meaning "every one of these". `problem` says why a stored trigger will not
+ *  fire; it is computed on the way out, so it can never disagree with the evaluator. */
+export interface Trigger {
+  id: string
+  name: string
+  description?: string
+  on: string
+  graph: TriggerGraph
+  builtin?: boolean
+  problem?: string
+  /** The automations referencing this one. Editing a trigger changes every one of them,
+   *  and delete is refused while this is non-empty. */
+  usedBy: string[]
+}
+
+export type WebhookFormat = 'envelope' | 'slack' | 'discord' | 'template'
+export type WebhookDelivery = 'each' | 'batch'
+export type WebhookAuthKind = 'none' | 'bearer' | 'basic' | 'header'
+
+export interface WebhookHeader {
+  name: string
+  /** Empty on the way out — the server never returns a stored value. Left empty on the way
+   *  back in, the stored one is kept, so a round trip cannot wipe what you cannot see. */
+  value: string
+}
+
+/** A configured outbound endpoint: trigger references, a destination, and a body.
+ *
+ *  `problem` says why a stored webhook will not deliver; it is computed on the way out, so
+ *  it can never disagree with the dispatcher. `paused` is Joro's switch, set by the runaway
+ *  breaker, as distinct from `enabled`, which is the operator's. */
+export interface Webhook {
+  id: string
+  name: string
+  description?: string
+  enabled: boolean
+  paused?: boolean
+  pausedReason?: string
+  triggers: string[]
+
+  url: string
+  method: string
+  headers?: WebhookHeader[]
+  auth: { kind: WebhookAuthKind; token?: string; user?: string; header?: string }
+  signing: { enabled: boolean; secret?: string; header?: string }
+
+  format: WebhookFormat
+  template?: string
+  delivery: WebhookDelivery
+
+  timeoutMs?: number
+  retries?: number
+  minIntervalMs?: number
+  insecureTls?: boolean
+  /** Whether a sandboxed automation may fire this by id. Off by default: the tick is the
+   *  operator's, and it is the whole gate on joro.webhook.send reaching this endpoint. */
+  allowAutomations?: boolean
+
+  problem?: string
+
+  /** Which secrets are stored, since their values never leave the server. */
+  hasAuthSecret: boolean
+  hasSigningSecret: boolean
+  secretHeaders: string[]
+}
+
+/** One placeholder Joro supplies itself, available whatever the event. */
+export interface WebhookToken {
+  name: string
+  token: string
+  description: string
+}
+
+/** One delivery attempt, newest first. In memory only — diagnostics, not a record. */
+export interface WebhookDeliveryLog {
+  id: string
+  at: string
+  event: string
+  trigger?: string
+  events: number
+  dropped?: number
+  attempts: number
+  status?: number
+  durationMs: number
+  error?: string
+}
+
+/** A dry run: the exact bytes sent, and what the endpoint answered. */
+export interface WebhookTest {
+  body: string
+  status: number
+  durationMs: number
+  error?: string
+}
+
+/** One condition field an event carries, with the operators it takes. Served rather than
+ *  hardcoded, so the canvas cannot offer a pairing the server would refuse. */
+export interface TriggerFieldSpec {
+  name: string
+  kind: 'text' | 'bytes' | 'number' | 'bool' | 'status'
+  ops: string[]
+  description: string
+  /** Everything this field can hold, for a field with a closed set. The editor renders a
+   *  dropdown instead of a text box. Advisory: a value outside the set is still storable,
+   *  because the set can grow. */
+  values?: string[]
+}
+
+/** A dry run of a trigger against recent traffic. `replayable` is false for an event with
+ *  no corpus to try it on — the graph is still reported valid or not. */
+export interface TriggerTest {
+  valid: boolean
+  error?: string
+  /** Nodes nothing reaches from the run node. Not an error, but they do nothing, so the
+   *  trigger fires more broadly than the picture suggests. */
+  orphans?: string[]
+  scanned: number
+  count: number
+  matched: Array<{
+    seq: number
+    method: string
+    host: string
+    url: string
+    status: number
+    contentType?: string
+  }>
+  replayable: boolean
+}
+
 /** The author-owned half of an installed automation. Cannot request capabilities: the
  *  sdkVersion selects a Joro-owned bundle, which is the point of the indirection. */
 export interface AutomationManifest {
@@ -308,8 +663,15 @@ export interface AutomationManifest {
   name: string
   version: string
   description?: string
-  sdkVersion: string
+  /** Absent normalizes to 'js'. A command manifest carries no sdkVersion or entrypoint:
+   *  it calls no SDK, and what it may do is decided by the operator enabling it. */
+  kind?: AutomationKind
+  sdkVersion?: string
   entrypoint?: string
+  /** The whole body of a command automation. Absent on a script. */
+  command?: CommandSpec
+  /** What makes this automation run, in precedence order: the dispatcher takes the first
+   *  with work. Each entry names an event directly or names a custom trigger. */
   triggers?: string[]
   limits?: AutomationLimits
   /** Set to add a viewer tab. The operator can retitle, repoint and reorder it. */
@@ -317,6 +679,10 @@ export interface AutomationManifest {
   /** Shortest gap between two triggered runs. Combined with the operator's by taking
    *  the longer, which is why it is not inside limits. */
   minIntervalMs?: number
+  /** The canvas this automation was built on, when it was built on one. Absent means the
+   *  source is hand-written, which stays a first-class way to author. Never submittable by
+   *  a token: script.install has no graph argument, for the reason it has no lens one. */
+  graph?: FlowGraph
 }
 
 export interface AutomationRevision {
@@ -329,6 +695,9 @@ export interface AutomationLastRun {
   id: string
   at: string
   reason: string
+  /** Backfilled from `reason` by the server for a sidecar written before the field
+   *  existed, so it is always present in practice. */
+  outcome?: ScriptOutcome
 }
 
 /** The operator-owned half, in a separate file so an update never reverts a decision. */
@@ -348,6 +717,10 @@ export interface AutomationState {
   lensLabel?: string
   lensPart?: string
   lensOrder?: number
+  /** The automation token whose capability call last wrote this code. Absent means the
+   *  operator wrote it, and saving one here clears the field. Nothing authorizes on it —
+   *  whether a token may replace the code turns on `enabled` alone. */
+  author?: string
   installedAt: string
   updatedAt: string
   revisions?: AutomationRevision[]
@@ -360,6 +733,99 @@ export interface AutomationPackage {
   state: AutomationState
   source?: string
   sourceHash: string
+  /** What a run of this automation actually gets: the author's request, narrowed by the
+   *  operator's override, held to the global budget. Resolved server-side so no caller
+   *  has to hold three halves and decide which wins. */
+  effectiveLimits?: AutomationLimits
+}
+
+/** One configurable field of the run budget, with the reason it is set where it is.
+ *  Served rather than restated here, so the UI cannot drift from the runtime. */
+export interface BudgetSpec {
+  key: string
+  label: string
+  /** The unit the operator types in — seconds, KB, calls. */
+  unit: string
+  /** Stored value = entered value x factor. Wall clock is entered in seconds and
+   *  stored in milliseconds, because that is what an automation manifest declares. */
+  factor: number
+  /** Joro's own default, and the maximum that applies while the operator has set none.
+   *  Both in the operator's unit, unlike the stored field. defaultMax is absent only on a
+   *  host spec, which has no requestable side and so no maximum. */
+  default: number
+  defaultMax?: number
+  /** The one figure the operator cannot exceed, with what it is fixed against. Absent
+   *  for most fields, where their number is final. */
+  cap?: number
+  capReason?: string
+  description: string
+}
+
+/** Limits that belong to this Joro rather than to one run. */
+export interface AutomationHostLimits {
+  storageOps?: number
+  sourceBytes?: number
+  concurrentRuns?: number
+  agentLogBytes?: number
+  agentResultBytes?: number
+}
+
+/** What the operator has set: per field a default and a maximum, plus the host limits. */
+export interface AutomationPolicy {
+  defaults?: AutomationLimits
+  maxima?: AutomationLimits
+  host?: AutomationHostLimits
+}
+
+/** Per-run limits for a command. A different set from a script's, because they bound
+ *  different things — there is no memory field, since a command is already its own process
+ *  and an allocation blowup costs it rather than Joro. */
+export interface CommandLimits {
+  timeoutMs?: number
+  maxStdoutBytes?: number
+  maxStderrBytes?: number
+  maxArtifactBytes?: number
+}
+
+export interface CommandHostLimits {
+  concurrentRuns?: number
+  scratchRuns?: number
+}
+
+export interface CommandPolicy {
+  defaults?: CommandLimits
+  maxima?: CommandLimits
+  host?: CommandHostLimits
+}
+
+/** The command budget, shaped like the script one so a single panel renders both. */
+export interface CommandBudget {
+  /** Whether --automation-commands was given. The section still renders when false — a
+   *  budget can be set before the flag is — but says so. */
+  enabled: boolean
+  policy: CommandPolicy
+  effective: CommandLimits
+  effectiveMax: CommandLimits
+  host: CommandHostLimits
+  specs: BudgetSpec[]
+  hostSpecs: BudgetSpec[]
+}
+
+export interface AutomationBudget {
+  policy: AutomationPolicy
+  /** What a run that asks for nothing is held to. */
+  effective: AutomationLimits
+  /** The most a run may ask for. Not always the shipped figure: an operator default
+   *  above it raises it, because their setting has to take. */
+  effectiveMax: AutomationLimits
+  /** The host limits with every unset field resolved. */
+  host: AutomationHostLimits
+  specs: BudgetSpec[]
+  hostSpecs: BudgetSpec[]
+  /** The bytes the two agent-output limits share; the one ceiling here that is fixed at
+   *  startup, so the pair is checked against it on save. */
+  agentOutputCap: number
+  command: CommandBudget
 }
 
 /** List projection. Source is withheld, not merely omitted. */
@@ -368,7 +834,11 @@ export interface AutomationSummary {
   name: string
   version: string
   description?: string
-  sdkVersion: string
+  kind: AutomationKind
+  sdkVersion?: string
+  /** A command package's argv on one line, for a list view. The full spec is withheld for
+   *  the same reason a script's source is: it names paths on the operator's machine. */
+  command?: string
   triggers: string[]
   /** The triggers currently live: declared, not switched off, and runnable. */
   armed: string[]
@@ -380,10 +850,17 @@ export interface AutomationSummary {
   pausedReason?: string
   sourceHash: string
   sourceBytes: number
+  /** The automation token whose capability call last wrote this code; absent for the
+   *  operator's own. See AutomationState.author. */
+  author?: string
   installedAt: string
   updatedAt: string
   revisions: number
   lastRun?: AutomationLastRun
+  /** Whether this was built on the canvas, so a list can say so without fetching the
+   *  package. Whether the canvas still matches the code is not here: answering that means
+   *  compiling the graph, which happens in the browser. */
+  hasGraph?: boolean
 }
 
 /** One joro.* method, joined with the capability behind it. */
@@ -449,7 +926,11 @@ export interface PluginInfo {
   version: string
   description: string
   type: string // "exec_provider" | "tab" | "feature" | "proxy_hook" | "dashboard"
-  status: string // "loaded" | "error"
+  // "removed" means the file is deleted but the code is still loaded, which lasts
+  // until a restart. A row with status "error" and an empty name is a file that
+  // would not load at all, so it has only a filename and a reason. "disabled" is
+  // the same shape, for a file --no-plugins listed without opening.
+  status: string // "loaded" | "error" | "removed" | "disabled"
   error?: string
   hash: string
   filename: string
@@ -513,24 +994,60 @@ const BASE = '/api/v1'
 // polling reads — never to mutations or /manipulate/send, which can be legitimately slow.
 export const TEAM_POLL_TIMEOUT = 4000
 
+// UI_ORIGIN_HEADER is sent on every request this module makes. Required by the routes that
+// decode no JSON body — the multipart uploads and the body-less POSTs. Server side is
+// requireLocalOrigin in internal/api/originguard.go.
+const UI_ORIGIN_HEADER = { 'X-Joro-Origin': '1' } as const
+
+// ApiError carries the HTTP status alongside the server's message, so a caller can tell a
+// deployment choice from a failure — a 404 from a feature disabled at startup reads the same
+// as a timeout otherwise. The message is the server's, unchanged, and this is an Error, so a
+// handler that only wants text can keep ignoring the distinction.
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 async function req<T>(method: string, path: string, body?: unknown, timeoutMs?: number): Promise<T> {
   const ctrl = timeoutMs ? new AbortController() : undefined
   const timer = timeoutMs ? setTimeout(() => ctrl!.abort(), timeoutMs) : undefined
   try {
     const res = await fetch(`${BASE}${path}`, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : {},
+      headers: body
+        ? { ...UI_ORIGIN_HEADER, 'Content-Type': 'application/json' }
+        : { ...UI_ORIGIN_HEADER },
       body: body ? JSON.stringify(body) : undefined,
       signal: ctrl?.signal,
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error((err as { error: string }).error || res.statusText)
+      throw new ApiError((err as { error: string }).error || res.statusText, res.status)
     }
     return res.json() as Promise<T>
   } finally {
     if (timer) clearTimeout(timer)
   }
+}
+
+// upload posts a multipart form. Never set Content-Type by hand here — the browser must
+// generate it to include the multipart boundary.
+async function upload<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { ...UI_ORIGIN_HEADER },
+    body: form,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new ApiError((err as { error: string }).error || res.statusText, res.status)
+  }
+  return res.json() as Promise<T>
 }
 
 export const api = {
@@ -627,15 +1144,10 @@ export const api = {
     req<{ index: number; payload: string; payloads?: Record<string, string>; statusCode: number; size: number; words: number; lines: number; durationMs: number; url: string; error?: string; hasBody: boolean; reqRaw?: string; respRaw?: string }>(
       'GET', `/fuzzer/campaigns/${campaignId}/results/${index}`
     ),
-  fuzzUploadWordlist: async (file: File) => {
+  fuzzUploadWordlist: (file: File) => {
     const form = new FormData()
     form.append('file', file)
-    const res = await fetch(`${BASE}/fuzzer/wordlist`, { method: 'POST', body: form })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error((err as { error: string }).error || res.statusText)
-    }
-    return res.json() as Promise<{ lines: string[]; count: number }>
+    return upload<{ lines: string[]; count: number }>('/fuzzer/wordlist', form)
   },
 
   // Generate
@@ -701,7 +1213,8 @@ export const api = {
   listProjectConfigs: () => req<{ configs: string[]; active: string; projects: ProjectMeta[] }>('GET', '/configs/project'),
   saveProjectConfig: (name: string) => req<{ status: string; name: string }>('POST', '/configs/project', { name }),
   loadProjectConfig: (name: string) => req<unknown>('PUT', `/configs/project/${name}`),
-  deleteProjectConfig: (name: string) => req<unknown>('DELETE', `/configs/project/${name}`),
+  deleteProjectConfig: (name: string) =>
+    req<{ status: string; wasActive: boolean }>('DELETE', `/configs/project/${name}`),
   switchProject: (name: string, opts?: { action?: 'save' | 'discard'; saveScratchAs?: string }) =>
     req<Record<string, unknown>>('POST', '/configs/project/switch', { name, ...(opts ?? {}) }),
   newProject: (name: string, opts: { empty: boolean; action?: 'save' | 'discard'; saveScratchAs?: string }) =>
@@ -746,16 +1259,11 @@ export const api = {
     req<{ output: string; error: string }>('POST', '/sliver/execute', { sessionId, command, args }),
   sliverCommand: (input: string) =>
     req<{ output: string; error: string; downloadId?: string; filename?: string; sessionChanged?: boolean; sessionId?: string; sessionName?: string; disconnected?: boolean }>('POST', '/sliver/command', { input }),
-  sliverUpload: async (remotePath: string, file: File) => {
+  sliverUpload: (remotePath: string, file: File) => {
     const form = new FormData()
     form.append('file', file)
     form.append('remotePath', remotePath)
-    const res = await fetch(`${BASE}/sliver/upload`, { method: 'POST', body: form })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error((err as { error: string }).error || res.statusText)
-    }
-    return res.json() as Promise<{ path: string }>
+    return upload<{ path: string }>('/sliver/upload', form)
   },
 
   // Mythic C2
@@ -768,16 +1276,11 @@ export const api = {
     req<{ callbacks: { id: number; display_id: number; user: string; host: string; pid: number; ip: string; os: string; architecture: string; last_checkin: string; description: string; payload_type: string }[] }>('GET', '/mythic/callbacks'),
   mythicCommand: (input: string) =>
     req<{ output: string; error: string; downloadId?: string; filename?: string; callbackChanged?: boolean; callbackId?: number; callbackName?: string; disconnected?: boolean }>('POST', '/mythic/command', { input }),
-  mythicUpload: async (remotePath: string, file: File) => {
+  mythicUpload: (remotePath: string, file: File) => {
     const form = new FormData()
     form.append('file', file)
     form.append('remotePath', remotePath)
-    const res = await fetch(`${BASE}/mythic/upload`, { method: 'POST', body: form })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error((err as { error: string }).error || res.statusText)
-    }
-    return res.json() as Promise<{ path: string }>
+    return upload<{ path: string }>('/mythic/upload', form)
   },
 
   // Notes
@@ -817,8 +1320,6 @@ export const api = {
   clearInteractions: (tokenId?: string) =>
     req<unknown>('DELETE', `/callbacks/interactions${tokenId ? `?token_id=${tokenId}` : ''}`),
   getCallbackConfig: () => req<{ domain: string; responseIp: string }>('GET', '/callbacks/config'),
-  updateCallbackConfig: (cfg: { domain: string; responseIp: string }) =>
-    req<{ domain: string; responseIp: string }>('PUT', '/callbacks/config', cfg),
 
   // XSS Hunter
   listProbes: () => req<XSSProbe[]>('GET', '/xss/probes', undefined, TEAM_POLL_TIMEOUT),
@@ -845,6 +1346,8 @@ export const api = {
     req<CollectedPageSummary[]>('GET', `/xss/fires/${fireId}/pages`),
   getCollectedPage: (id: string) =>
     req<CollectedPage>('GET', `/xss/pages/${id}`),
+  // The global collect-pages / chainload tier beneath per-probe config. No UI calls these;
+  // they are how that tier is read and cleared. See handlers_xsshunter.go.
   getXSSConfig: () => req<XSSConfig>('GET', '/xss/config'),
   updateXSSConfig: (cfg: XSSConfig) => req<XSSConfig>('PUT', '/xss/config', cfg),
 
@@ -1063,18 +1566,16 @@ export const api = {
 
   // Plugins
   listPlugins: () => req<PluginInfo[]>('GET', '/plugins'),
-  uploadPlugin: async (file: File): Promise<{ filename: string; message: string }> => {
+  uploadPlugin: (file: File): Promise<{ filename: string; message: string }> => {
     const form = new FormData()
     form.append('file', file)
-    const res = await fetch(`${BASE}/plugins/upload`, { method: 'POST', body: form })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error((err as { error: string }).error || res.statusText)
-    }
-    return res.json() as Promise<{ filename: string; message: string }>
+    return upload<{ filename: string; message: string }>('/plugins/upload', form)
   },
-  deletePlugin: (filename: string) =>
-    req<{ filename: string; message: string }>('DELETE', `/plugins/${encodeURIComponent(filename)}`),
+  deletePlugin: (filename: string, opts?: { purgeData?: boolean }) =>
+    req<{ filename: string; restartRequired: boolean; dataPurged: boolean; message: string }>(
+      'DELETE',
+      `/plugins/${encodeURIComponent(filename)}${opts?.purgeData ? '?purgeData=true' : ''}`,
+    ),
   listExecProviders: () => req<ExecProviderInfo[]>('GET', '/plugins/exec-providers'),
   pluginGraph: () => req<Record<string, PluginGraphInfo>>('GET', '/plugins/graph'),
   pluginConnect: (name: string, config: Record<string, string>) =>
@@ -1121,10 +1622,73 @@ export const api = {
   clearScriptRuns: () => req<{ deleted: number }>('DELETE', '/automation/runs'),
 
   listScripts: () =>
-    req<{ scripts: AutomationSummary[]; triggers: string[]; bundle: string }>(
-      'GET',
-      '/automation/scripts'
-    ),
+    req<{
+      scripts: AutomationSummary[]
+      triggers: string[]
+      bundle: string
+      kinds: AutomationKind[]
+      /** Whether the JavaScript half is live. False with only --automation-commands. */
+      scripting: boolean
+      commands: CommandMeta
+    }>('GET', '/automation/scripts'),
+  listTriggers: () =>
+    req<{
+      triggers: Trigger[]
+      /** Which fields each event carries, and the operators each takes. An event absent
+       *  from the map carries nothing to test. */
+      fields: Record<string, TriggerFieldSpec[]>
+      limits: { nodes: number; edges: number; valueLen: number }
+      ops: string[]
+      nodeTypes: TriggerNodeType[]
+      events: string[]
+    }>('GET', '/automation/triggers'),
+  getTrigger: (id: string) => req<Trigger>('GET', `/automation/triggers/${id}`),
+  createTrigger: (t: Partial<Trigger>) => req<Trigger>('POST', '/automation/triggers', t),
+  updateTrigger: (id: string, t: Partial<Trigger>) =>
+    req<Trigger>('PUT', `/automation/triggers/${id}`, t),
+  deleteTrigger: (id: string) => req<{ status: string }>('DELETE', `/automation/triggers/${id}`),
+  /** The graph a new trigger starts from. Served rather than built here so the starting
+   *  point cannot drift from what the server will accept. */
+  seedTrigger: (on: string) =>
+    req<{ on: string; graph: TriggerGraph }>('GET', `/automation/triggers/seed?on=${on}`),
+  /** Dry-run a trigger against recent traffic. Takes the whole trigger rather than an id,
+   *  so trying one out does not cost a saved — and therefore referenceable — trigger. */
+  testTrigger: (t: Partial<Trigger>, limit?: number) =>
+    req<TriggerTest>('POST', '/automation/triggers/test', { ...t, limit }),
+
+  listWebhooks: () =>
+    req<{
+      webhooks: Webhook[]
+      formats: WebhookFormat[]
+      deliveries: WebhookDelivery[]
+      authKinds: WebhookAuthKind[]
+      methods: string[]
+      /** The placeholders Joro supplies whatever the event. */
+      tokens: WebhookToken[]
+      /** Which event fields a body template may name, per event. Bytes fields are absent:
+       *  they exist so a condition can search a body, not so a notification can carry one. */
+      fields: Record<string, string[]>
+      limits: {
+        webhooks: number
+        triggers: number
+        headers: number
+        templateBytes: number
+        timeoutMs: number
+        retries: number
+        minIntervalMs: number
+      }
+    }>('GET', '/webhooks'),
+  getWebhook: (id: string) => req<Webhook>('GET', `/webhooks/${id}`),
+  createWebhook: (h: Partial<Webhook>) => req<Webhook>('POST', '/webhooks', h),
+  updateWebhook: (id: string, h: Partial<Webhook>) => req<Webhook>('PUT', `/webhooks/${id}`, h),
+  deleteWebhook: (id: string) => req<{ status: string }>('DELETE', `/webhooks/${id}`),
+  setWebhookEnabled: (id: string, enabled: boolean) =>
+    req<Webhook>('PUT', `/webhooks/${id}/enabled`, { enabled }),
+  /** Render a sample event and deliver it for real. A rejected delivery still resolves —
+   *  the status and error are the answer, not a failed call. */
+  testWebhook: (id: string) => req<WebhookTest>('POST', `/webhooks/${id}/test`),
+  listWebhookDeliveries: (id: string) =>
+    req<{ deliveries: WebhookDeliveryLog[] }>('GET', `/webhooks/${id}/deliveries`),
   getScript: (id: string) => req<AutomationPackage>('GET', `/automation/scripts/${id}`),
   installScript: (manifest: AutomationManifest, source: string) =>
     req<AutomationPackage>('POST', '/automation/scripts', { manifest, source }),
@@ -1145,8 +1709,10 @@ export const api = {
     }
   ) =>
     req<AutomationSummary>('PUT', `/automation/scripts/${id}/prefs`, prefs),
-  // No client timeout below the server's: a run may legitimately take a minute, and
-  // aborting it here would leave the operator with no result and the run still going.
+  // No client timeout below the server's: a run may legitimately last as long as the
+  // operator's wall-clock budget allows, and aborting here would leave them with no
+  // report while the run carried on. Keep this above jsruntime.CapTimeout (10 minutes),
+  // which is the longest wall clock the budget can be set to.
   runScript: (body: {
     scriptId?: string
     source?: string
@@ -1154,7 +1720,7 @@ export const api = {
     /** Labels the run in the log; 'lens' also strips the send capabilities. */
     trigger?: string
     timeoutMs?: number
-  }) => req<ScriptRun>('POST', '/automation/runs', body, 120000),
+  }) => req<ScriptRun>('POST', '/automation/runs', body, 630_000),
   getScriptSdk: () =>
     req<{
       bundle: string
@@ -1163,6 +1729,18 @@ export const api = {
       globals: { js: string; description: string }[]
       triggers: string[]
     }>('GET', '/automation/sdk'),
+  getAutomationLimits: () => req<AutomationBudget>('GET', '/automation/limits'),
+  // Both policies travel together, because the panel edits them in one form and a partial
+  // save would leave the operator's two halves out of step with what they were looking at.
+  setAutomationLimits: (policy: AutomationPolicy, command?: CommandPolicy) =>
+    req<AutomationBudget>('PUT', '/automation/limits', { policy, command }),
+  /** A file a command run left behind. Served as an attachment, so this is an href rather
+   *  than a fetch — the browser saves it instead of the client holding it in memory. */
+  runArtifactUrl: (runId: string, name: string) =>
+    `${BASE}/automation/runs/${encodeURIComponent(runId)}/artifacts/${name
+      .split('/')
+      .map(encodeURIComponent)
+      .join('/')}`,
   getMcpState: () => req<McpState>('GET', '/automation/mcp'),
   setMcpState: (body: { enabled?: boolean; port?: number }) =>
     req<McpState>('PUT', '/automation/mcp', body),

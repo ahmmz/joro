@@ -38,12 +38,30 @@ type Binding struct {
 //     profile.
 //   - detect.* writes, including rescan — same argument: they change what the
 //     operator sees rather than what the script learns.
-//   - scope.addrule / scope.enable — these are UnrestrictedOnly, and a run pins
-//     RequireScope, so including one would fail the profile validation at startup.
-//     That is the intended outcome: scope is the control that bounds the run.
+//   - scope.addrule / scope.enable — these are UnrestrictedOnly, and scope is the control
+//     that bounds a run, so a run must not be able to edit it. Enforced by
+//     capreg.validateBundle, which panics at startup on a bundle naming one: a run whose
+//     policy resolves unrestricted would otherwise be permitted to invoke it.
 //   - exec.* and c2.* — command execution and an operator's C2 are granted one at a
 //     time by hand, never bundled.
 //   - script.* — a script that can start scripts launders its own budget.
+//
+// webhook.fire is the one member here whose bytes leave the engagement, and it is in on a
+// different footing from the rest. It is not bounded by what it may reach, because scope
+// describes web targets and a notification endpoint is not one; it is bounded by the operator
+// having ticked a specific endpoint open to automation. That tick is the arming, and it is why
+// this belongs beside the reads rather than behind a new BundleVersion: without one, every
+// call fails, and the set of destinations is fixed by the operator before a run starts.
+//
+// Weigh an addition against how far it reaches, not against the grant that launched the
+// run: a run's grants come from this table and are never intersected with the launching
+// token's, so anything here is authority every triggered run and every armed lens holds,
+// including those no token launched. notes.delete and findings.delete are in on the
+// grounds that both are bounded to the run's own entries and to findings the operator has
+// already dismissed, which is no further than findings.update already reaches — it can
+// rewrite severity, notes and the false-positive flag on the same record. A write that
+// could reach what the operator has not dismissed belongs behind a new BundleVersion
+// instead.
 var Bindings = []Binding{
 	{JS: "instance.get", Cap: "instance.get"},
 
@@ -72,10 +90,12 @@ var Bindings = []Binding{
 	{JS: "findings.get", Cap: "findings.get"},
 	{JS: "findings.create", Cap: "findings.create"},
 	{JS: "findings.update", Cap: "findings.update"},
+	{JS: "findings.delete", Cap: "findings.delete"},
 
 	{JS: "notes.list", Cap: "notes.list"},
 	{JS: "notes.hosts", Cap: "notes.hosts"},
 	{JS: "notes.create", Cap: "notes.create"},
+	{JS: "notes.delete", Cap: "notes.delete"},
 
 	{JS: "context.get", Cap: "context.get"},
 	{JS: "context.clear", Cap: "context.clear"},
@@ -85,6 +105,9 @@ var Bindings = []Binding{
 
 	{JS: "detect.rules", Cap: "detect.rules.list"},
 	{JS: "detect.config", Cap: "detect.config.get"},
+
+	{JS: "webhook.list", Cap: "webhook.list"},
+	{JS: "webhook.send", Cap: "webhook.fire"},
 }
 
 // CapabilityIDs returns the capability IDs the SDK can reach, sorted and deduplicated.
@@ -307,12 +330,17 @@ var (
 // `import y from "lodash"` would reject the whole program — either way the source an
 // operator reads back would not be the source that ran, which is the one property the run
 // log exists to provide.
-func Prepare(source string) (string, error) {
+// maxBytes is the operator's program-size limit; zero or less takes the shipped default,
+// so a caller with no policy in hand still gets a bound.
+func Prepare(source string, maxBytes int) (string, error) {
 	if strings.TrimSpace(source) == "" {
 		return "", fmt.Errorf("script is empty: define an entry point, for example `async function run(ctx) { ... }`")
 	}
-	if len(source) > MaxSourceBytes {
-		return "", fmt.Errorf("script is %d bytes, over the %d byte limit", len(source), MaxSourceBytes)
+	if maxBytes <= 0 {
+		maxBytes = DefaultSourceBytes
+	}
+	if len(source) > maxBytes {
+		return "", fmt.Errorf("script is %d bytes, over the %d byte limit", len(source), maxBytes)
 	}
 
 	out := source

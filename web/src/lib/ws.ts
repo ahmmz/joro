@@ -1,3 +1,4 @@
+import { useAutomationStore } from '../stores/automationStore'
 import { useCallbackStore, type CallbackInteraction } from '../stores/callbackStore'
 import { useDetectStore, type Finding, type DetectSummary } from '../stores/detectStore'
 import { useFuzzStore, type FuzzResult } from '../stores/fuzzStore'
@@ -10,9 +11,11 @@ import { useTeamConnectionStore, type RelayState } from '../stores/teamConnectio
 import { useTeamFlaggedStore, type FlaggedSummary } from '../stores/teamFlaggedStore'
 import { useTeamSharedConfigStore, type SharedConfigSummary } from '../stores/teamSharedConfigStore'
 import { useUpdateStore } from '../stores/updateStore'
+import { useWebhookStore } from '../stores/webhookStore'
 import { useWSStore } from '../stores/wsStore'
 import { useXSSHunterStore, type XSSFire } from '../stores/xssHunterStore'
 import type { CapturedWSMessage } from './api'
+import { redactNow } from '../stores/streamerStore'
 
 type WSMessage = {
   type: string
@@ -233,7 +236,7 @@ function handleMessage(msg: WSMessage) {
       // Toast only on the connected→disconnected transition, so backoff retries
       // and reconnect churn don't spam.
       if (prev === 'connected' && d.state === 'disconnected') {
-        const detail = d.error ? `: ${d.error}` : ''
+        const detail = d.error ? `: ${redactNow(d.error, 'url')}` : ''
         useToastStore.getState().addToast(`Team server disconnected${detail}`)
       }
       break
@@ -359,10 +362,46 @@ function handleMessage(msg: WSMessage) {
       // cause: the runaway breaker pausing an automation the operator armed. Waiting for
       // the next poll to learn that something stopped itself is the wrong default.
       const d = msg.data as { id?: string; paused?: boolean; pausedReason?: string }
+      // The toast says it happened; the refresh is what makes the row agree.
+      useAutomationStore.getState().refreshScripts()
       if (d?.paused) {
         useToastStore
           .getState()
           .addToast(`Automation ${d.id ?? ''} was paused: ${d.pausedReason ?? 'runaway'}`, 'error')
+      }
+      break
+    }
+    case 'webhook.state': {
+      // The only webhook event on the bus, and the only state change an operator did not
+      // make: the runaway breaker pausing one they armed. Per-delivery events would be a
+      // firehose, and the editor polls its delivery log instead.
+      const d = msg.data as { id?: string; paused?: boolean; pausedReason?: string }
+      useWebhookStore.getState().invalidate()
+      useWebhookStore.getState().refresh()
+      if (d?.paused) {
+        useToastStore
+          .getState()
+          .addToast(`Webhook ${d.id ?? ''} was paused: ${d.pausedReason ?? 'runaway'}`, 'error')
+      }
+      break
+    }
+    case 'automation.script.stored': {
+      // The second state change the operator did not make: a token stored or replaced an
+      // automation. The Automations panel loads on mount and after its own actions and
+      // nothing else, so without this a package stored while they are looking at that
+      // panel stays invisible until they leave it and come back.
+      const d = msg.data as { id?: string; author?: string; created?: boolean }
+      useAutomationStore.getState().refreshScripts()
+      // Toasted on a new automation only. A replacement is already visible in the row's
+      // hash and revision count, and an agent iterating on a draft must not be able to
+      // fill the screen with notifications.
+      if (d?.created) {
+        useToastStore
+          .getState()
+          .addToast(
+            `${d.author ?? 'An automation token'} stored automation ${d.id ?? ''} — review it in Settings → Automation`,
+            'info'
+          )
       }
       break
     }

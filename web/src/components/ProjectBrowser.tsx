@@ -2,14 +2,21 @@ import { useEffect, useRef, useState } from 'react'
 import { useProjectStore } from '../stores/projectStore'
 import { useToastStore } from '../stores/toastStore'
 import { api, type ProjectMeta } from '../lib/api'
+import ConfirmModal from './ConfirmModal'
 import NewProjectModal from './NewProjectModal'
 import ProjectSettings from './ProjectSettings'
+import { Redacted } from './Redacted'
+import { redactNow } from '../stores/streamerStore'
 
 function formatBytes(n: number): string {
   if (n <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB']
   const i = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)))
   return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+function plural(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`
 }
 
 function formatWhen(iso: string): string {
@@ -32,9 +39,11 @@ export default function ProjectBrowser() {
   const createEmpty = useProjectStore((s) => s.createEmpty)
   const setPrefs = useProjectStore((s) => s.setPrefs)
   const saveActive = useProjectStore((s) => s.saveActive)
+  const remove = useProjectStore((s) => s.remove)
   const addToast = useToastStore((s) => s.addToast)
 
   const [creating, setCreating] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<ProjectMeta | null>(null)
   const [pending, setPending] = useState<{ name: string; scratch: boolean } | null>(null)
   const [scratchName, setScratchName] = useState('')
   const [err, setErr] = useState('')
@@ -47,7 +56,7 @@ export default function ProjectBrowser() {
   async function doSwitch(name: string, opts?: { action?: 'save' | 'discard'; saveScratchAs?: string }) {
     try {
       await switchTo(name, opts)
-      addToast(`Switched to ${name}`, 'info')
+      addToast(`Switched to ${redactNow(name, 'identity')}`, 'info')
     } catch (e) {
       addToast(`Failed to switch: ${String(e)}`, 'error')
     }
@@ -66,7 +75,7 @@ export default function ProjectBrowser() {
   async function handleSave() {
     try {
       await saveActive()
-      addToast(`Saved ${active}`, 'info')
+      addToast(`Saved ${redactNow(active, 'identity')}`, 'info')
     } catch (e) {
       addToast(`Failed to save: ${String(e)}`, 'error')
     }
@@ -75,7 +84,7 @@ export default function ProjectBrowser() {
   async function handleCreateCurrent(name: string) {
     try {
       await createFromCurrent(name)
-      addToast(`Created project ${name}`, 'info')
+      addToast(`Created project ${redactNow(name, 'identity')}`, 'info')
     } catch (e) {
       addToast(`Failed to create: ${String(e)}`, 'error')
     }
@@ -85,11 +94,24 @@ export default function ProjectBrowser() {
   async function handleCreateEmpty(name: string, opts?: { action?: 'save' | 'discard'; saveScratchAs?: string }) {
     try {
       await createEmpty(name, opts)
-      addToast(`Created empty project ${name}`, 'info')
+      addToast(`Created empty project ${redactNow(name, 'identity')}`, 'info')
     } catch (e) {
       addToast(`Failed to create: ${String(e)}`, 'error')
     }
     setCreating(false)
+  }
+
+  async function handleDelete(name: string) {
+    try {
+      const wasActive = await remove(name)
+      const shown = redactNow(name, 'identity')
+      addToast(
+        wasActive ? `Deleted ${shown}; session continues unnamed` : `Deleted ${shown}`,
+        'info',
+      )
+    } catch (e) {
+      addToast(`Failed to delete: ${String(e)}`, 'error')
+    }
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -106,7 +128,7 @@ export default function ProjectBrowser() {
       const b64 = btoa(binary)
       const name = file.name.replace(/\.(joro|json)$/i, '').replace(/[^a-zA-Z0-9_-]/g, '-')
       await api.importProjectConfig(name, b64)
-      addToast(`Imported ${name}`, 'info')
+      addToast(`Imported ${redactNow(name, 'identity')}`, 'info')
       await refresh()
       window.dispatchEvent(new CustomEvent('joro:project-changed'))
     } catch (er) {
@@ -130,7 +152,7 @@ export default function ProjectBrowser() {
           <button
             onClick={handleSave}
             disabled={active === ''}
-            title={active === '' ? 'No active project to save' : `Save ${active}`}
+            title={active === '' ? 'No active project to save' : `Save ${redactNow(active, 'identity')}`}
             className="px-3 py-1.5 rounded-sm bg-accent-tertiary hover:bg-accent-tertiary-hover text-black text-xs font-semibold disabled:opacity-40"
           >
             Save
@@ -181,7 +203,7 @@ export default function ProjectBrowser() {
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-2">
                       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.active ? 'bg-accent' : 'bg-transparent'}`} />
-                      <span className={`font-medium truncate ${p.active ? 'text-accent' : 'text-content-primary'}`}>{p.name}</span>
+                      <span className={`font-medium truncate ${p.active ? 'text-accent' : 'text-content-primary'}`}><Redacted value={p.name} kind="identity" /></span>
                       {p.active && <span className="text-[9px] uppercase tracking-wide text-accent">active</span>}
                     </div>
                   </td>
@@ -203,6 +225,12 @@ export default function ProjectBrowser() {
                         className="text-accent-secondary hover:underline font-medium disabled:opacity-40 disabled:no-underline"
                       >
                         {p.active ? 'Loaded' : 'Switch'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(p)}
+                        className="text-semantic-error hover:underline font-medium"
+                      >
+                        Delete
                       </button>
                     </div>
                   </td>
@@ -226,6 +254,33 @@ export default function ProjectBrowser() {
           onClose={() => setCreating(false)}
           onCreateCurrent={handleCreateCurrent}
           onCreateEmpty={handleCreateEmpty}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Delete project"
+          message={
+            confirmDelete.active
+              ? `Delete ${redactNow(confirmDelete.name, 'identity')}? Its project file and testing-browser profile are removed. Your session stays loaded as an unnamed Scratch session — save it under a new name to keep it. This cannot be undone.`
+              : `Delete ${redactNow(confirmDelete.name, 'identity')}? Its project file and testing-browser profile are removed. This cannot be undone.`
+          }
+          body={
+            <p className="text-xs text-content-muted">
+              {plural(confirmDelete.requestCount, 'request')} &middot;{' '}
+              {plural(confirmDelete.noteCount, 'note')} &middot;{' '}
+              {plural(confirmDelete.findingCount, 'finding')} &middot;{' '}
+              {formatBytes(confirmDelete.sizeBytes)}
+            </p>
+          }
+          confirmLabel="Delete"
+          deliberate
+          onConfirm={() => {
+            const name = confirmDelete.name
+            setConfirmDelete(null)
+            void handleDelete(name)
+          }}
+          onClose={() => setConfirmDelete(null)}
         />
       )}
 

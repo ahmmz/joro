@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -43,7 +42,7 @@ type GenerateRequest struct {
 
 func (s *APIServer) handleGenerate(w http.ResponseWriter, r *http.Request) {
 	var body GenerateRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

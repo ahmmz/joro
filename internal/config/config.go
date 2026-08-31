@@ -47,6 +47,31 @@ type Config struct {
 	// or the reverse. Same posture otherwise — off by default, no profile grants it,
 	// and a restart is required to change it.
 	AutomationScripting bool
+	// AutomationCommands allows installed command automations to run: packages whose
+	// body is a local operating-system command rather than a sandboxed script. Off by
+	// default, and a launch flag for a stronger reason than the two above — this is the
+	// one automation surface with no capability behind it, so there is no grant to
+	// withhold and no registry guard to evaluate. The flag and the operator's decision
+	// to arm a package are its whole control.
+	//
+	// When off, command packages still load and list, and the UI names this flag. An
+	// operator who installed one should be told why it will not run rather than left
+	// wondering whether it is broken.
+	AutomationCommands bool
+	// NoWebhooks disables outbound webhooks entirely: no routes registered, no
+	// webhooks.json read or written, no dispatcher subscribed to the event bus. A
+	// deployment-posture switch in the same family as NoAutomation, and the answer for an
+	// engagement where nothing may leave the machine — a webhook is the one feature whose
+	// bytes go somewhere Joro's scope does not describe.
+	NoWebhooks bool
+	// NoPlugins skips loading plugins from ~/.joro/plugins/ — the files are still
+	// listed, so the UI can delete one, but no plugin code runs.
+	//
+	// This is a recovery switch, not only a posture one. A Go plugin is dlopen'd
+	// before the API server starts, and the runtime can throw on a file it will not
+	// accept, so a plugin the host cannot load is a binary that will not boot. Every
+	// other route out of that state needs a shell in ~/.joro/plugins/.
+	NoPlugins bool
 }
 
 // Default returns a Config populated with sensible defaults.

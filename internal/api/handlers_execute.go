@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/BishopFox/joro/internal/proxy"
@@ -16,7 +15,7 @@ func (s *APIServer) handleExecute(w http.ResponseWriter, r *http.Request) {
 		Command   string `json:"command"`
 		LegacyTLS bool   `json:"legacyTls"` // set true for TLS 1.0 targets (e.g. CentOS 6)
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := decodeJSON(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}

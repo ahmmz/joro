@@ -20,7 +20,7 @@ const (
 
 // ReadArgs is the argument shape of http.read.
 type ReadArgs struct {
-	Ref      int    `json:"ref"`
+	Seq      int    `json:"seq" alias:"ref"`
 	Part     string `json:"part"`     // req | resp
 	Section  string `json:"section"`  // headers | body | raw
 	Offset   int    `json:"offset"`   // negative reads from the end
@@ -29,10 +29,13 @@ type ReadArgs struct {
 	Encoding string `json:"encoding"` // auto | text | hex | base64
 }
 
-// ReadResult is the structured half of a read. It is small and fixed-shape, so it
-// is also emitted as MCP structuredContent; list-shaped results never are.
+// ReadResult is the structured half of a read, and the value the JavaScript SDK
+// returns: a script reads r.text and branches on r.truncated rather than parsing
+// anything. An MCP client receives Render's text instead, chosen at that boundary.
+// The two forms are never both sent — text may be 16 KB, and duplicating it as
+// structuredContent would double the cost of every read.
 type ReadResult struct {
-	Ref         int    `json:"ref"`
+	Seq         int    `json:"seq"`
 	Part        string `json:"part"`
 	Section     string `json:"section"`
 	Encoding    string `json:"encoding"`
@@ -43,7 +46,9 @@ type ReadResult struct {
 	Decoded     string `json:"decoded,omitempty"`
 	Text        string `json:"text"`
 
-	// Redacted names the headers whose values were masked, set by the caller.
+	// Redacted names the withheld header values that lie inside the returned
+	// window, and only those: naming one the caller did not receive implies a
+	// credential the returned bytes never carried.
 	Redacted []string `json:"redacted,omitempty"`
 }
 
@@ -52,7 +57,11 @@ type ReadResult struct {
 // Coordinates are bytes of the selected section after decoding. section "raw" is
 // the whole dump with decoding forced off, so it stays byte-exact and matches the
 // contract of the History Raw tab.
-func ReadRange(reqRaw, respRaw []byte, args ReadArgs) (*ReadResult, error) {
+//
+// maskCredentials withholds sensitive header values. It is applied to the half that
+// is actually returned, never to both, so the redaction notice cannot name a header
+// the other half carried.
+func ReadRange(reqRaw, respRaw []byte, args ReadArgs, maskCredentials bool) (*ReadResult, error) {
 	part := strings.ToLower(strings.TrimSpace(args.Part))
 	if part == "" {
 		part = "resp"
@@ -72,7 +81,12 @@ func ReadRange(reqRaw, respRaw []byte, args ReadArgs) (*ReadResult, error) {
 		return nil, fmt.Errorf(`part must be "req" or "resp", got %q`, args.Part)
 	}
 	if len(raw) == 0 {
-		return nil, fmt.Errorf("no %s bytes were captured for request %d", part, args.Ref)
+		return nil, fmt.Errorf("no %s bytes were captured for request %d", part, args.Seq)
+	}
+
+	var spans []maskSpan
+	if maskCredentials {
+		raw, spans = maskHeaderSpans(raw)
 	}
 
 	// Raw stays byte-exact: decoding it would make offsets disagree with what the
@@ -115,7 +129,7 @@ func ReadRange(reqRaw, respRaw []byte, args ReadArgs) (*ReadResult, error) {
 	window := sel[start:end]
 
 	res := &ReadResult{
-		Ref:         args.Ref,
+		Seq:         args.Seq,
 		Part:        part,
 		Section:     section,
 		TotalLength: total,
@@ -125,6 +139,15 @@ func ReadRange(reqRaw, respRaw []byte, args ReadArgs) (*ReadResult, error) {
 		Decoded:     m.Decoded,
 	}
 	res.Encoding, res.Text = encodeWindow(window, args.Encoding, start)
+
+	switch section {
+	case "headers", "raw":
+		// Both share the raw message's coordinates — the header block is its
+		// prefix, and raw is decoded-off — so a span compares to the window directly.
+		res.Redacted = namesInRange(spans, start, end)
+	case "body":
+		// Only header values are ever withheld, so a body window holds none.
+	}
 	return res, nil
 }
 
@@ -148,30 +171,44 @@ func encodeWindow(window []byte, want string, baseOffset int) (encoding, text st
 	}
 }
 
-// Render produces the text block an automation client receives: a single meta line
-// followed by the window.
+// Render produces the text form: exactly one meta line, then the window, then any
+// notes. The bytes begin immediately after the first '\n' and nothing is ever
+// inserted ahead of them.
+//
+// The fixed preamble is the point. A note above the window makes the offset of the
+// first payload byte depend on whether that note fired, and the framing changes from
+// '\n' to '\r\n' at the same boundary — so a reader taking the first line gets the
+// meta line, a note and the request line welded together, with nothing in the output
+// to say which shape arrived.
 //
 // The meta line always names decoded when an encoding was unwrapped, because a
 // decoded total disagrees with the Content-Length the client just read in the
-// headers, and an unexplained mismatch reads as a bug.
+// headers, and an unexplained mismatch reads as a bug. It names redacted for the same
+// reason a note does: a withheld value the reader has not been told about is a
+// credential it will report as absent.
 func (r *ReadResult) Render() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "ref=%d part=%s section=%s enc=%s total=%d off=%d ret=%d truncated=%t",
-		r.Ref, r.Part, r.Section, r.Encoding, r.TotalLength, r.Offset, r.Returned, r.Truncated)
+	fmt.Fprintf(&b, "seq=%d part=%s section=%s enc=%s total=%d off=%d ret=%d truncated=%t",
+		r.Seq, r.Part, r.Section, r.Encoding, r.TotalLength, r.Offset, r.Returned, r.Truncated)
 	if r.Decoded != "" {
 		fmt.Fprintf(&b, " decoded=%s", r.Decoded)
 	}
-	b.WriteByte('\n')
-	if note := RedactionNote(r.Redacted); note != "" {
-		b.WriteString(note)
-		b.WriteByte('\n')
+	if len(r.Redacted) > 0 {
+		fmt.Fprintf(&b, " redacted=%s", strings.Join(r.Redacted, ","))
 	}
+	b.WriteByte('\n')
 	b.WriteString(r.Text)
 	if r.Truncated {
 		// Truncation must always name the way to get the rest, or the client
 		// simply retries the identical call.
 		fmt.Fprintf(&b, "\n[truncated: %d of %d bytes. Continue with offset=%d]",
 			r.Returned, r.TotalLength, r.Offset+r.Returned)
+	}
+	// Last, so the prose is the final thing read: what it warns against is a masked
+	// header being reported as one the target never sent.
+	if note := RedactionNote(r.Redacted); note != "" {
+		b.WriteByte('\n')
+		b.WriteString(note)
 	}
 	return b.String()
 }
