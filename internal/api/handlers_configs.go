@@ -11,13 +11,16 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/BishopFox/joro/internal/browser"
 	"github.com/BishopFox/joro/internal/chain"
 	"github.com/BishopFox/joro/internal/configstore"
 	"github.com/BishopFox/joro/internal/detect"
+	"github.com/BishopFox/joro/internal/echo"
 	"github.com/BishopFox/joro/internal/proxy"
+	"github.com/BishopFox/joro/internal/techfp"
 	"github.com/hashicorp/go-uuid"
 )
 
@@ -63,12 +66,18 @@ type projectReplaceRule struct {
 	MatchType string `json:"matchType"`
 	Match     string `json:"match"`
 	Replace   string `json:"replace"`
+	// Disabled persists the per-rule opt-out as a disabled flag (absent = enabled),
+	// so an existing .joro written before this field loads every rule enabled with no
+	// version bump or normalizeProjectConfig backfill.
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 type projectCustomItem struct {
 	Type  string `json:"type"`
 	Name  string `json:"name"`
 	Value string `json:"value"`
+	// Disabled: see projectReplaceRule.Disabled.
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 type projectNote struct {
@@ -102,6 +111,8 @@ type projectDetectConfig struct {
 	SkipContentTypes         []string `json:"skipContentTypes,omitempty"`
 	SkipExtensions           []string `json:"skipExtensions,omitempty"`
 	ExcludeHosts             []string `json:"excludeHosts,omitempty"`
+	AnomalyEnabled           bool     `json:"anomalyEnabled,omitempty"`
+	AnomalySensitivity       string   `json:"anomalySensitivity,omitempty"`
 }
 
 // projectDetectRule is a custom detection rule as persisted. Unlike the scope,
@@ -217,6 +228,28 @@ type projectConfigFile struct {
 	// no field to leave out. The raws ride as base64 because that is what
 	// encoding/json does with []byte.
 	Chains []*chain.Chain `json:"chains,omitempty"`
+
+	// EchoConfig is the reflection mapper's settings (schema v9). Only the
+	// settings travel: the map itself is derived from history and a rescan
+	// rebuilds it, so persisting it would store a second copy of captured
+	// traffic that a project load could not keep in step with the first.
+	EchoConfig *echo.Config `json:"echoConfig,omitempty"`
+
+	// ActiveScanDisabledRules lists the active-scan rule IDs the operator turned
+	// off (schema v10). Only the exceptions travel, so a project that never
+	// touched them decodes to nil and runs every rule — no normalize gate needed,
+	// for the same reason EchoConfig/Chains above need none.
+	ActiveScanDisabledRules []string `json:"activeScanDisabledRules,omitempty"`
+
+	// ActiveScanDisabledSignatures is the legacy (schema v11) flat list of disabled
+	// template-signature IDs. Read-only now: it is folded into
+	// ActiveScanDisabledItems["templatesig"] on load so old projects still restore.
+	ActiveScanDisabledSignatures []string `json:"activeScanDisabledSignatures,omitempty"`
+
+	// ActiveScanDisabledItems holds each catalog rule's disabled item IDs, keyed by
+	// rule id (schema v12). Generalizes ActiveScanDisabledSignatures to every rule
+	// with a catalog (template signatures + the injection rules). Exceptions-only.
+	ActiveScanDisabledItems map[string][]string `json:"activeScanDisabledItems,omitempty"`
 }
 
 // encodePluginStates base64-encodes each blob for transport inside a JSON
@@ -293,13 +326,13 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 	replaceRules := s.replace.Rules()
 	pReplaceRules := make([]projectReplaceRule, len(replaceRules))
 	for i, r := range replaceRules {
-		pReplaceRules[i] = projectReplaceRule{Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace}
+		pReplaceRules[i] = projectReplaceRule{Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace, Disabled: !r.Enabled}
 	}
 
 	customItems := s.customData.Items()
 	pCustomItems := make([]projectCustomItem, len(customItems))
 	for i, item := range customItems {
-		pCustomItems[i] = projectCustomItem{Type: item.Type, Name: item.Name, Value: item.Value}
+		pCustomItems[i] = projectCustomItem{Type: item.Type, Name: item.Name, Value: item.Value, Disabled: !item.Enabled}
 	}
 
 	var pNotes []projectNote
@@ -347,12 +380,25 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 
 	dEnabled, dCfg, dDisabled, dOverrides, dRules, dFindings := s.detectStateForProject()
 
+	var echoCfg *echo.Config
+	if s.echoEngine != nil {
+		c := s.echoEngine.Config()
+		echoCfg = &c
+	}
+
+	var activeScanDisabled []string
+	if s.activeScanRules != nil {
+		activeScanDisabled = s.activeScanRules.Disabled()
+	}
+	activeScanDisabledItems := s.collectDisabledItems()
+
 	return projectConfigFile{
-		// v8 added Chains; v7 added AutomationStates. Neither needs a
-		// normalizeProjectConfig gate: both decode to nil when absent, which is the
-		// correct default — a backfill exists only where the zero value would be
-		// wrong, as it was for autoSave and detectEnabled.
-		Version:           8,
+		// v12 generalized disabled signatures to ActiveScanDisabledItems (per-rule
+		// catalog disables); v10 added ActiveScanDisabledRules; v9 added EchoConfig; v8
+		// Chains; v7 AutomationStates. None needs a normalizeProjectConfig gate: all
+		// decode to nil when absent, which is the correct default — and the legacy v11
+		// ActiveScanDisabledSignatures is folded into the map on apply.
+		Version:           12,
 		AutoSave:          autoSave,
 		SaveHistory:       saveHistory,
 		ListenerURL:       listenerURL,
@@ -384,7 +430,10 @@ func (s *APIServer) buildProjectConfig(autoSave, saveHistory bool) projectConfig
 		// state the first time anyone else saves.
 		AutomationStates: encodePluginStates(mergePluginStates(automationGhost, automationFresh)),
 
-		Chains: s.chainStore.List(),
+		Chains:                  s.chainStore.List(),
+		EchoConfig:              echoCfg,
+		ActiveScanDisabledRules: activeScanDisabled,
+		ActiveScanDisabledItems: activeScanDisabledItems,
 	}
 }
 
@@ -569,11 +618,27 @@ func (s *APIServer) liveStateSignature() string {
 	if s.chainStore != nil {
 		chainCount, chainRev = s.chainStore.Count(), s.chainStore.Revision()
 	}
+	// Only the reflection settings are saved, so only they are fingerprinted:
+	// the map's own revision changes on every analyzed response and would force
+	// a project save every tick while proxying.
+	echoSig := ""
+	if s.echoEngine != nil {
+		c := s.echoEngine.Config()
+		echoSig = fmt.Sprintf("/ec%v.%d.%d.%d", c.Enabled, c.MinValueLen,
+			c.TransformDepth, c.MaxBodyScanBytes)
+	}
+	// Only the active-rule toggles persist, so only they are fingerprinted — not
+	// the run list, which is session state.
+	activeScanSig := ""
+	if s.activeScanRules != nil {
+		activeScanSig = "/as" + strings.Join(s.activeScanRules.Disabled(), ",")
+	}
+	activeScanSig += s.disabledItemsSignature()
 	return fmt.Sprintf("r%d/s%d/n%d/u%d/h%d/sc%s/rp%d/cd%d/no%d/lc%d.%d",
 		reqCount, lastSeq, noteCount, maxNoteUpdate, hlCount,
 		scopeSignature(s.scope.Rules()), len(s.replace.Rules()),
 		len(s.customData.Items()), len(s.noise.Patterns()), chainCount, chainRev) +
-		s.detectSignature() + s.automationSignature()
+		s.detectSignature() + s.automationSignature() + echoSig + activeScanSig
 }
 
 // saveProject snapshots live state to the named project's .joro (respecting its
@@ -663,6 +728,15 @@ func (s *APIServer) resetLiveProjectState() {
 	}
 	if s.chainRuns != nil {
 		s.chainRuns.Clear()
+	}
+	if s.activeScans != nil {
+		s.activeScans.Clear()
+	}
+	// The reflection map describes the previous engagement's traffic, so it goes
+	// with it; the settings return to their defaults alongside.
+	if s.echoEngine != nil {
+		s.echoStore.Clear()
+		s.echoEngine.SetConfig(echo.DefaultConfig())
 	}
 
 	// An automation's key/value state describes the engagement it was gathered in.
@@ -762,9 +836,38 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	if s.chainRuns != nil {
 		s.chainRuns.Clear()
 	}
+	if s.activeScans != nil {
+		s.activeScans.Clear()
+	}
 	if s.chainStore != nil {
 		s.chainStore.ReplaceAll(cfg.Chains)
 	}
+
+	// The reflection map is derived from the history being replaced, so it is
+	// cleared rather than loaded; its settings are project data and are applied.
+	// An older file carries none, and the defaults are the right answer there.
+	if s.echoEngine != nil {
+		s.echoStore.Clear()
+		if cfg.EchoConfig != nil {
+			s.echoEngine.SetConfig(*cfg.EchoConfig)
+		} else {
+			s.echoEngine.SetConfig(echo.DefaultConfig())
+		}
+	}
+
+	// Active-rule toggles are project data; a nil slice (an older file, or a
+	// project that never changed them) clears the disabled set, so every rule runs.
+	if s.activeScanRules != nil {
+		s.activeScanRules.SetDisabled(cfg.ActiveScanDisabledRules)
+	}
+	// Per-catalog-item disables, keyed by rule id; a missing key clears that rule's
+	// set. Fold the legacy v11 flat signature list into the template rule's entry so
+	// old project files still restore.
+	items := cfg.ActiveScanDisabledItems
+	if items == nil && len(cfg.ActiveScanDisabledSignatures) > 0 {
+		items = map[string][]string{"templatesig": cfg.ActiveScanDisabledSignatures}
+	}
+	s.applyDisabledItems(items)
 
 	// Apply team server settings.
 	s.mu.Lock()
@@ -803,14 +906,14 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 
 	replaceRules := make([]proxy.MatchReplaceRule, len(cfg.ReplaceRules))
 	for i, r := range cfg.ReplaceRules {
-		replaceRules[i] = proxy.MatchReplaceRule{ID: proxy.GenerateID(), Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace}
+		replaceRules[i] = proxy.MatchReplaceRule{ID: proxy.GenerateID(), Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace, Enabled: !r.Disabled}
 	}
 	s.replace.SetEnabled(cfg.ReplaceEnabled)
 	s.replace.SetRules(replaceRules)
 
 	customItems := make([]proxy.CustomAddition, len(cfg.CustomDataItems))
 	for i, item := range cfg.CustomDataItems {
-		customItems[i] = proxy.CustomAddition{ID: proxy.GenerateID(), Type: item.Type, Name: item.Name, Value: item.Value}
+		customItems[i] = proxy.CustomAddition{ID: proxy.GenerateID(), Type: item.Type, Name: item.Name, Value: item.Value, Enabled: !item.Disabled}
 	}
 	s.customData.SetEnabled(cfg.CustomDataEnabled)
 	s.customData.SetItems(customItems)
@@ -869,6 +972,14 @@ func (s *APIServer) applyProjectConfig(cfg *projectConfigFile, name string, pres
 	// re-examined by an explicit rescan.
 	detectResp := s.applyDetectProjectConfig(cfg)
 	s.resetDetectCursor(s.store.LastSeq())
+
+	// The fingerprint cursor was just parked forward past the loaded history, so the
+	// live loop would skip it. Backfill the loaded hosts with a background rescan —
+	// tech data is cheap and tag-only (unlike detect's findings, which is why detect
+	// requires an explicit rescan). Clear:true drops the previous project's tags.
+	if s.techEngine != nil && s.store.Count() > 0 {
+		s.techEngine.StartRescan(s.detectBackgroundCtx(), techfp.RescanRequest{Scope: "all", Clear: true})
+	}
 
 	var unknownPluginStates []string
 	if s.pluginManager != nil {
@@ -1559,7 +1670,7 @@ func (s *APIServer) handleApplySharedConfig(w http.ResponseWriter, r *http.Reque
 			continue
 		}
 		replaceRules = append(replaceRules, proxy.MatchReplaceRule{
-			ID: proxy.GenerateID(), Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace,
+			ID: proxy.GenerateID(), Target: r.Target, MatchType: r.MatchType, Match: r.Match, Replace: r.Replace, Enabled: !r.Disabled,
 		})
 	}
 	s.replace.SetRules(replaceRules)
@@ -1575,7 +1686,7 @@ func (s *APIServer) handleApplySharedConfig(w http.ResponseWriter, r *http.Reque
 			continue
 		}
 		customItems = append(customItems, proxy.CustomAddition{
-			ID: proxy.GenerateID(), Type: it.Type, Name: it.Name, Value: it.Value,
+			ID: proxy.GenerateID(), Type: it.Type, Name: it.Name, Value: it.Value, Enabled: !it.Disabled,
 		})
 	}
 	s.customData.SetItems(customItems)

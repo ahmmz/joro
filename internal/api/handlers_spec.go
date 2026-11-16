@@ -21,6 +21,11 @@ type specLoadRequest struct {
 	Text string `json:"text"` // the document verbatim
 	URL  string `json:"url"`  // fetched through Joro's proxy
 	Name string `json:"name"`
+
+	// UserAgent is the tab's, when a tab is doing the loading — a discovery
+	// sweep probes with it, so the fetch of what it found uses it too. Empty on
+	// a first load, where no tab exists yet.
+	UserAgent string `json:"userAgent,omitempty"`
 }
 
 // handleSpecLoad parses a document and stores it.
@@ -51,7 +56,7 @@ func (s *APIServer) handleSpecLoad(w http.ResponseWriter, r *http.Request) {
 		data = []byte(req.Text)
 		sourceURL = req.URL
 	case req.URL != "":
-		fetched, ct, err := s.fetchSpecViaProxy(r, req.URL)
+		fetched, ct, err := s.fetchSpecViaProxy(r, req.URL, req.UserAgent)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, err.Error())
 			return
@@ -87,7 +92,7 @@ func (s *APIServer) handleSpecLoad(w http.ResponseWriter, r *http.Request) {
 // is captured into History, filtered by scope and routed through SOCKS exactly
 // as browser traffic is — and so the document is recoverable later from History
 // without re-fetching it.
-func (s *APIServer) fetchSpecViaProxy(r *http.Request, rawURL string) ([]byte, string, error) {
+func (s *APIServer) fetchSpecViaProxy(r *http.Request, rawURL, userAgent string) ([]byte, string, error) {
 	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || u.Host == "" {
 		return nil, "", fmt.Errorf("could not parse %q as a URL", rawURL)
@@ -97,10 +102,10 @@ func (s *APIServer) fetchSpecViaProxy(r *http.Request, rawURL string) ([]byte, s
 	}
 
 	target := u.RequestURI()
-	// The default rather than an operator value: a load carries no profile and
-	// no tab exists yet to have set one.
+	// A load carries no profile, so the tab's User-Agent is the only operator
+	// value there is; UserAgentOr falls back for the first load, which has none.
 	raw := "GET " + target + " HTTP/1.1\r\nHost: " + u.Host + "\r\n" +
-		"User-Agent: " + apispec.DefaultUserAgent + "\r\n" +
+		"User-Agent: " + apispec.UserAgentOr(userAgent) + "\r\n" +
 		"Accept: application/json, text/yaml, application/yaml, */*\r\n\r\n"
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -135,11 +140,13 @@ func (s *APIServer) fetchSpecViaProxy(r *http.Request, rawURL string) ([]byte, s
 // notADocument builds the hint returned when a URL served something that is not
 // a description document.
 //
-// The most common case by far is a Swagger UI page: Joro's own detect rule
-// flags those under the same finding as a real document, because its pattern
-// matches the string "swagger-ui". Answering "that is the UI, and here is where
-// it usually loads its document from" turns the most common failure into the
-// next action rather than a dead end.
+// When the page is an API-documentation UI (Swagger UI and its siblings all
+// embed or name the document they render), the hint names it and offers the
+// references it loads from — the most common failure becomes the next action.
+// A plain HTML page names nothing, so following its own scripts would list the
+// site's analytics and bundles as if they were documents; it is offered the
+// well-known document paths to sweep instead. The two are told apart by the
+// bytes, not assumed from "this is HTML", so neither verdict overclaims.
 func notADocument(body []byte, contentType, sourceURL string) map[string]any {
 	isHTML := strings.Contains(strings.ToLower(contentType), "text/html") ||
 		apispec.LooksLikeHTMLDocument(body)
@@ -147,22 +154,41 @@ func notADocument(body []byte, contentType, sourceURL string) map[string]any {
 		return nil
 	}
 
-	candidates := apispec.ExtractSpecRefs(body, sourceURL)
-	if len(candidates) == 0 {
-		for _, p := range apispec.CandidatePaths("", apispec.CandidatePriority) {
-			candidates = append(candidates, p)
-			if len(candidates) >= 12 {
-				break
-			}
+	if ui := apispec.DetectDocUI(body); ui != "" {
+		candidates := apispec.ExtractSpecRefs(body, sourceURL)
+		if len(candidates) == 0 {
+			candidates = priorityCandidates()
+		}
+		return map[string]any{
+			"error":       fmt.Sprintf("that URL served the %s page, not an API description document — these are the paths it loads from", ui),
+			"kind":        "html",
+			"ui":          ui,
+			"contentType": contentType,
+			"sourceUrl":   sourceURL,
+			"candidates":  candidates,
 		}
 	}
 	return map[string]any{
-		"error":       "that URL served an HTML page, not an API description document",
+		"error":       "that URL served an HTML page, not an API description document — try these well-known document paths on this host",
 		"kind":        "html",
+		"ui":          "",
 		"contentType": contentType,
 		"sourceUrl":   sourceURL,
-		"candidates":  candidates,
+		"candidates":  priorityCandidates(),
 	}
+}
+
+// priorityCandidates is the head of the standard discovery wordlist, offered as
+// paths to try when a page names no document of its own.
+func priorityCandidates() []string {
+	var out []string
+	for _, p := range apispec.CandidatePaths("", apispec.CandidatePriority) {
+		out = append(out, p)
+		if len(out) >= 12 {
+			break
+		}
+	}
+	return out
 }
 
 func (s *APIServer) handleSpecList(w http.ResponseWriter, r *http.Request) {

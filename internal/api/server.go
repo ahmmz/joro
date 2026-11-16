@@ -15,6 +15,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BishopFox/joro/internal/activescan"
+	"github.com/BishopFox/joro/internal/activescan/cmdi"
+	"github.com/BishopFox/joro/internal/activescan/domxss"
+	"github.com/BishopFox/joro/internal/activescan/openredirect"
+	"github.com/BishopFox/joro/internal/activescan/pathtraversal"
+	"github.com/BishopFox/joro/internal/activescan/reflectedxss"
+	"github.com/BishopFox/joro/internal/activescan/sqli"
+	"github.com/BishopFox/joro/internal/activescan/ssti"
+	"github.com/BishopFox/joro/internal/activescan/templatesig"
+	"github.com/BishopFox/joro/internal/anomaly"
 	"github.com/BishopFox/joro/internal/apiscan"
 	"github.com/BishopFox/joro/internal/automation"
 	"github.com/BishopFox/joro/internal/callback"
@@ -25,17 +35,21 @@ import (
 	"github.com/BishopFox/joro/internal/config"
 	"github.com/BishopFox/joro/internal/configstore"
 	"github.com/BishopFox/joro/internal/detect"
+	"github.com/BishopFox/joro/internal/echo"
 	"github.com/BishopFox/joro/internal/event"
+	"github.com/BishopFox/joro/internal/feeds"
 	"github.com/BishopFox/joro/internal/fuzzer"
 	"github.com/BishopFox/joro/internal/httptools"
 	"github.com/BishopFox/joro/internal/jsautomation"
 	"github.com/BishopFox/joro/internal/mcp"
 	"github.com/BishopFox/joro/internal/mythic"
 	"github.com/BishopFox/joro/internal/notes"
+	"github.com/BishopFox/joro/internal/oast"
 	"github.com/BishopFox/joro/internal/plugins"
 	"github.com/BishopFox/joro/internal/proxy"
 	"github.com/BishopFox/joro/internal/sliver"
 	"github.com/BishopFox/joro/internal/team"
+	"github.com/BishopFox/joro/internal/techfp"
 	"github.com/BishopFox/joro/internal/trigger"
 	"github.com/BishopFox/joro/internal/update"
 	"github.com/BishopFox/joro/internal/webhook"
@@ -118,12 +132,38 @@ type APIServer struct {
 	chainStore *chain.Store
 	chainRuns  *chainrun.Store
 
+	// Active scanning: operator-initiated rules that drive a target and file
+	// findings into the shared detect store. Both are nil in listener/team mode
+	// (the routes are proxy-mode only); runs are session state cleared on a
+	// project switch, and the registry is the rule set the host offers.
+	activeScans     *activescan.Store
+	activeScanRules *activescan.Registry
+
 	// Passive detection. All three are nil in listener and team-server mode; the
 	// detect routes are gated on proxy mode in registerRoutes, so only the shared
 	// config paths need nil guards.
 	detectEngine   *detect.Engine
 	detectFindings *detect.Store
 	detectScanner  *detect.Scanner
+	anomalyEngine  *anomaly.Engine
+
+	// Reflection mapping (the Echo tab). The map is session state and is
+	// rebuilt by a rescan, for the reason SJ's stores are: it is derived from
+	// history and holds no triage of its own. Only its config travels with the
+	// project, and only a breakout reaches detectFindings. See internal/echo.
+	echoEngine *echo.Engine
+	echoStore  *echo.Store
+
+	// Passive technology fingerprinting (the embedded Wappalyzer database). Nil
+	// outside proxy mode. The active-scan signature rule reads its store to run
+	// only the checks a host's stack warrants. See internal/techfp.
+	techEngine *techfp.Engine
+
+	// Out-of-band confirmation: correlates the callback server's response hash
+	// back into captured traffic and mints confirmed CategoryOOB findings. Nil
+	// outside proxy mode. See internal/oast.
+	oastEngine *oast.Engine
+
 	// detectCtx is the server-lifetime context, so a rescan job can outlive the
 	// HTTP request that started it. Guarded by mu.
 	detectCtx context.Context
@@ -175,6 +215,15 @@ type APIServer struct {
 	webhookDeliver  *webhook.Deliverer
 	webhookDispatch *webhook.Dispatcher
 
+	// Threat-intelligence feeds. Independent of automation and of webhooks: a curated,
+	// read-only aggregator (NVD / CISA KEV / advisory headlines) the dashboard renders.
+	// Both nil under --no-feeds, in listener mode, or when feeds.json could not be read.
+	// feedsCtx is the server-lifetime context so a refresh kicked from a handler outlives
+	// the request; set once in startFeedsLoop before serving. See feeds_wire.go.
+	feeds      *feeds.Aggregator
+	feedsStore *feeds.SettingsStore
+	feedsCtx   context.Context
+
 	buildInfo  BuildInfo
 	cancelFunc context.CancelFunc
 	restart    bool
@@ -195,6 +244,9 @@ type APIServer struct {
 	settings            Settings
 	activeUserConfig    string
 	activeProjectConfig string
+	// oastDomain is the callback domain the OAST confirmer harvests tokens under,
+	// seeded from --domain and best-effort refreshed from the listener. Guarded by mu.
+	oastDomain string
 	lastSaveSig         string // fingerprint of live state at last save (auto-save skip)
 
 	// pendingUserPluginStates / pendingProjectPluginStates preserve plugin
@@ -269,6 +321,7 @@ func New(
 		specRuns:      apiscan.NewStore(),
 		chainStore:    chain.NewStore(),
 		chainRuns:     chainrun.NewStore(),
+		activeScans:   activescan.NewStore(),
 		pluginManager: pluginManager,
 
 		detectEngine:   detectEngine,
@@ -294,11 +347,49 @@ func New(
 			DisableUpdateChecks: cfg.DisableUpdateChecks,
 		},
 	}
+	// Anomaly analysis writes into the same findings store as detect, but computes
+	// per-host baselines the detect engine's stateless scan path cannot. Built here
+	// so it can read the live detect config every cycle and push the shared summary.
+	s.anomalyEngine = anomaly.NewEngine(
+		store, scope, detectFindings,
+		detectEngine.Config, hub.Broadcast(), s.broadcastDetectSummary)
+	// Reflection mapping writes into the same findings store, and for the same
+	// reason is built here: it needs the shared summary push.
+	s.echoStore = echo.NewStore(0)
+	s.echoEngine = echo.NewEngine(
+		s.echoStore, store, scope, detectFindings,
+		hub.Broadcast(), s.broadcastDetectSummary)
+	// Passive technology fingerprinting over the same capture store. Built here so
+	// it rides the one cursor-reset path (resetDetectCursor) the other passive
+	// analyzers use.
+	s.techEngine = techfp.NewEngine(techfp.NewStore(), store, hub.Broadcast())
+	// Out-of-band confirmer. Writes into the same findings store; built here so it
+	// rides the one cursor-reset path and pushes the shared summary. The token DB
+	// lives in the listener process, so it harvests expected hashes from captured
+	// callback hostnames under oastDomain (from --domain or refreshed later).
+	s.oastDomain = cfg.CallbackDomain
+	s.oastEngine = oast.NewEngine(
+		store, detectFindings, s.callbackDomainForOAST,
+		hub.Broadcast(), s.broadcastDetectSummary)
+	// Active-scan rule set. The registry is built here (not a package global, per
+	// the no-globals rule) so the api layer can import both activescan and its
+	// rules without an import cycle.
+	s.activeScanRules = activescan.NewRegistry()
+	s.activeScanRules.Register(domxss.New())
+	s.activeScanRules.Register(templatesig.New())
+	// Injection-fuzzing rules (parameter mutation + differential/timing/OAST).
+	s.activeScanRules.Register(reflectedxss.New())
+	s.activeScanRules.Register(sqli.New())
+	s.activeScanRules.Register(ssti.New())
+	s.activeScanRules.Register(cmdi.New())
+	s.activeScanRules.Register(openredirect.New())
+	s.activeScanRules.Register(pathtraversal.New())
 	// Both stores are built here rather than in SetAutomation, because both outlive
 	// automation: a webhook references a trigger, and neither needs an agent to be useful.
 	// See initTriggers for why the trigger store moved out of newScriptManager.
 	s.initTriggers()
 	s.initWebhooks()
+	s.initFeeds()
 	return s
 }
 
@@ -410,6 +501,9 @@ func (s *APIServer) Start(ctx context.Context) error {
 		// No-ops entirely under --no-webhooks. Started after automation so the run
 		// watcher startScriptTriggers registers is already in place.
 		s.startWebhooks(ctx)
+		// No-ops entirely under --no-feeds. Fetches nothing until the operator enables
+		// feeds in Settings or on the Dashboard.
+		s.startFeedsLoop(ctx)
 	}
 
 	// Serve frontend (skip in listener mode - listener is API-only).

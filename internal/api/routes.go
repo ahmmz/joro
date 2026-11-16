@@ -26,6 +26,7 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/callbacks/interactions", s.handleListInteractions)
 	mux.HandleFunc("DELETE /api/v1/callbacks/interactions", s.handleClearInteractions)
 	mux.HandleFunc("GET /api/v1/callbacks/config", s.handleGetCallbackConfig)
+	mux.HandleFunc("POST /api/v1/callbacks/verify", s.handleVerifyCallback)
 
 	// XSS Hunter routes (both modes - handler logic differs per mode)
 	mux.HandleFunc("GET /api/v1/xss/probes", s.handleListProbes)
@@ -80,11 +81,16 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	// Sitemap
 	mux.HandleFunc("GET /api/v1/sitemap", s.handleGetSitemap)
 	mux.HandleFunc("DELETE /api/v1/sitemap", s.handleDeleteSitemap)
+	// The parameter inventory behind a node. UI-only for the reason stated on the
+	// echo block below: a row names a parameter and an example of its value.
+	mux.HandleFunc("GET /api/v1/sitemap/params", s.handleGetSitemapParams)
 
 	// HTTP history
 	mux.HandleFunc("GET /api/v1/requests", s.handleListRequests)
 	mux.HandleFunc("GET /api/v1/requests/{id}", s.handleGetRequest)
+	mux.HandleFunc("GET /api/v1/requests/{id}/params", s.handleGetRequestParams)
 	mux.HandleFunc("DELETE /api/v1/requests", s.handleClearRequests)
+	mux.HandleFunc("DELETE /api/v1/requests/by-host", s.handleDeleteRequestsByHost)
 
 	// Intercept
 	mux.HandleFunc("GET /api/v1/intercept", s.handleGetInterceptQueue)
@@ -108,6 +114,8 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/fuzzer/campaigns/{id}/results/{index}", s.handleFuzzerGetResult)
 	mux.HandleFunc("DELETE /api/v1/fuzzer/campaigns/{id}", s.handleFuzzerDeleteCampaign)
 	mux.HandleFunc("POST /api/v1/fuzzer/wordlist", s.handleFuzzerUploadWordlist)
+	mux.HandleFunc("GET /api/v1/fuzzer/wordlists", s.handleFuzzerListWordlists)
+	mux.HandleFunc("POST /api/v1/fuzzer/wordlist/preview", s.handleFuzzerPreviewSource)
 
 	// API description documents (the SJ tab). Loads a Swagger/OpenAPI document,
 	// renders each operation to raw bytes, and drives scans, auth-profile
@@ -167,6 +175,20 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/chain/runs/{id}/stop", s.handleChainStopRun)
 	mux.HandleFunc("DELETE /api/v1/chain/runs/{id}", s.handleChainDeleteRun)
 
+	// Active scanning. Operator-initiated rules that drive a target and file
+	// findings into Detect; DOM XSS is the first. Scope-respecting (a scan with
+	// scope off is never rejected), proxy-mode only, one run at a time.
+	mux.HandleFunc("GET /api/v1/activescan/rules", s.handleActiveScanRules)
+	mux.HandleFunc("PUT /api/v1/activescan/rules/{id}/enabled", s.handleSetActiveScanRuleEnabled)
+	mux.HandleFunc("GET /api/v1/activescan/rules/{id}/signatures", s.handleActiveScanSignatures)
+	mux.HandleFunc("PUT /api/v1/activescan/rules/{id}/signatures/enabled", s.handleSetActiveScanSignaturesBulk)
+	mux.HandleFunc("PUT /api/v1/activescan/rules/{id}/signatures/{itemId}/enabled", s.handleSetActiveScanSignatureEnabled)
+	mux.HandleFunc("POST /api/v1/activescan/runs", s.handleActiveScanStart)
+	mux.HandleFunc("GET /api/v1/activescan/runs", s.handleActiveScanListRuns)
+	mux.HandleFunc("GET /api/v1/activescan/runs/{id}", s.handleActiveScanGetRun)
+	mux.HandleFunc("POST /api/v1/activescan/runs/{id}/stop", s.handleActiveScanStopRun)
+	mux.HandleFunc("DELETE /api/v1/activescan/runs/{id}", s.handleActiveScanDeleteRun)
+
 	// Passive detection. Unlike the other rule collections below, detect rules
 	// have a PUT (a rule's ID is referenced by every finding it produced) and a
 	// test endpoint.
@@ -191,6 +213,37 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/detect/scan", s.handleGetDetectScan)
 	mux.HandleFunc("POST /api/v1/detect/scan/cancel", s.handleCancelDetectScan)
 
+	// Reflection mapping (the Echo tab). Records every value a request sent and
+	// every place it comes back in the response, with the transform it came back
+	// through and the context it landed in.
+	//
+	// UI-only, like the blocks above, though it sends nothing at all: the map is
+	// a read of captured traffic. It stays off the capability surface because a
+	// row names a parameter and its value, which is where an application puts
+	// session tokens and personal data, and a token that could enumerate the map
+	// would be reading every credential that crossed the proxy.
+	mux.HandleFunc("GET /api/v1/echo", s.handleGetEcho)
+	mux.HandleFunc("PUT /api/v1/echo/enabled", s.handleSetEchoEnabled)
+	mux.HandleFunc("GET /api/v1/echo/config", s.handleGetEchoConfig)
+	mux.HandleFunc("PUT /api/v1/echo/config", s.handleSetEchoConfig)
+	mux.HandleFunc("GET /api/v1/echo/params", s.handleListEchoParams)
+	mux.HandleFunc("GET /api/v1/echo/params/{id}", s.handleGetEchoParam)
+	mux.HandleFunc("GET /api/v1/echo/requests/{requestId}", s.handleGetEchoRequest)
+	mux.HandleFunc("DELETE /api/v1/echo/data", s.handleClearEcho)
+	mux.HandleFunc("POST /api/v1/echo/scan", s.handleStartEchoScan)
+	mux.HandleFunc("GET /api/v1/echo/scan", s.handleGetEchoScan)
+	mux.HandleFunc("POST /api/v1/echo/scan/cancel", s.handleCancelEchoScan)
+
+	// Technology fingerprinting (the embedded Wappalyzer database). UI-only, like
+	// echo: a passive read of captured traffic that names the stack each host
+	// serves, which the active-scan rule reads to gate its checks.
+	mux.HandleFunc("GET /api/v1/tech/hosts", s.handleListTechHosts)
+	mux.HandleFunc("GET /api/v1/tech/hosts/{host}", s.handleGetTechHost)
+	mux.HandleFunc("PUT /api/v1/tech/enabled", s.handleSetTechEnabled)
+	mux.HandleFunc("POST /api/v1/tech/scan", s.handleStartTechScan)
+	mux.HandleFunc("GET /api/v1/tech/scan", s.handleGetTechScan)
+	mux.HandleFunc("POST /api/v1/tech/scan/cancel", s.handleCancelTechScan)
+
 	// Web shell generator
 	mux.HandleFunc("POST /api/v1/generate", s.handleGenerate)
 
@@ -214,12 +267,14 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/replace", s.handleGetReplace)
 	mux.HandleFunc("PUT /api/v1/replace/enabled", s.handleSetReplaceEnabled)
 	mux.HandleFunc("POST /api/v1/replace/rules", s.handleAddReplaceRule)
+	mux.HandleFunc("PUT /api/v1/replace/rules/{id}/enabled", s.handleSetReplaceRuleEnabled)
 	mux.HandleFunc("DELETE /api/v1/replace/rules/{id}", s.handleDeleteReplaceRule)
 
 	// Custom Data
 	mux.HandleFunc("GET /api/v1/customdata", s.handleGetCustomData)
 	mux.HandleFunc("PUT /api/v1/customdata/enabled", s.handleSetCustomDataEnabled)
 	mux.HandleFunc("POST /api/v1/customdata/items", s.handleAddCustomDataItem)
+	mux.HandleFunc("PUT /api/v1/customdata/items/{id}/enabled", s.handleSetCustomDataItemEnabled)
 	mux.HandleFunc("DELETE /api/v1/customdata/items/{id}", s.handleDeleteCustomDataItem)
 
 	// Config save/load
@@ -372,6 +427,13 @@ func registerRoutes(s *APIServer, mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/v1/webhooks/{id}/enabled", s.handleSetWebhookEnabled)
 	mux.HandleFunc("POST /api/v1/webhooks/{id}/test", s.handleTestWebhook)
 	mux.HandleFunc("GET /api/v1/webhooks/{id}/deliveries", s.handleListWebhookDeliveries)
+
+	// Threat-intel feeds. Registered unconditionally and gated on requireFeeds, for the same
+	// SPA-catch-all reason as the block above. UI-only, proxy-mode only (nil in listener mode).
+	mux.HandleFunc("GET /api/v1/feeds", s.handleGetFeeds)
+	mux.HandleFunc("POST /api/v1/feeds/refresh", s.handleRefreshFeeds)
+	mux.HandleFunc("GET /api/v1/feeds/settings", s.handleGetFeedsSettings)
+	mux.HandleFunc("PUT /api/v1/feeds/settings", s.handleSetFeedsSettings)
 
 	// Plugin routes (dynamic, based on loaded plugins).
 	registerPluginRoutes(s, mux)

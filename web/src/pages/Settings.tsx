@@ -5,6 +5,7 @@ import type { PluginInfo } from '../lib/api'
 import ProjectBrowser from '../components/ProjectBrowser'
 import AutomationSettings from '../components/AutomationSettings'
 import WebhookSettings from '../components/webhooks/WebhookSettings'
+import FeedsSettings from '../components/FeedsSettings'
 import PluginSettings from '../components/PluginSettings'
 import { Settings, isTeamMode, useSettingsStore } from '../stores/settingsStore'
 import { useUpdateStore } from '../stores/updateStore'
@@ -13,11 +14,12 @@ import { useDashboardLayoutStore } from '../stores/dashboardLayoutStore'
 import DashboardLayoutSettings from '../components/DashboardLayoutSettings'
 import ConfirmModal from '../components/ConfirmModal'
 import HealthCheck from '../components/HealthCheck'
+import { Switch } from '../components/Switch'
 import { useToastStore } from '../stores/toastStore'
 import { getBrowserPrefs, setBrowserPrefs } from '../lib/browserPrefs'
 import { NAV } from '../lib/nav'
 import { useStreamerStore } from '../stores/streamerStore'
-import { Settings as SettingsIcon, Palette, Folder, AppWindow, Blocks, Bot, Webhook } from 'lucide-react'
+import { Settings as SettingsIcon, Palette, Folder, AppWindow, Blocks, Bot, Webhook, Rss } from 'lucide-react'
 
 const THEMES = [
   { value: 'aomori', label: 'Aomori' },
@@ -40,7 +42,7 @@ const THEMES = [
   { value: 'tokyo', label: 'Tokyo' },
 ]
 
-type Category = 'project' | 'general' | 'appearance' | 'testing' | 'plugins' | 'automation' | 'webhooks'
+type Category = 'project' | 'general' | 'appearance' | 'testing' | 'plugins' | 'automation' | 'webhooks' | 'feeds'
 
 const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
   {
@@ -77,6 +79,11 @@ const CATEGORIES: { id: Category; label: string; icon: ReactNode }[] = [
     id: 'webhooks',
     label: 'Webhooks',
     icon: <Webhook size={15} strokeWidth={1.7} aria-hidden="true" />,
+  },
+  {
+    id: 'feeds',
+    label: 'Threat Feeds',
+    icon: <Rss size={15} strokeWidth={1.7} aria-hidden="true" />,
   },
 ]
 
@@ -256,6 +263,9 @@ export default function SettingsPage() {
 
           {/* Webhooks likewise, and it is available with no automation flag at all. */}
           {category === 'webhooks' && <WebhookSettings />}
+
+          {/* Feeds is padded-and-scrolling (it supplies no height of its own). */}
+          {category === 'feeds' && <FeedsSettings />}
 
           {category === 'plugins' && (
             <PluginSettings plugins={plugins} onRefresh={refreshPlugins} />
@@ -606,23 +616,6 @@ function Row({ label, title, children }: { label: ReactNode; title?: string; chi
 
 function SubLabel({ children }: { children: ReactNode }) {
   return <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-content-muted mt-2.5 mb-1.5">{children}</div>
-}
-
-function Switch({ checked, onChange, title }: { checked: boolean; onChange: (v: boolean) => void; title?: string }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      title={title}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-4 w-8 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-secondary ${
-        checked ? 'bg-accent-secondary' : 'bg-surface-input border border-border'
-      }`}
-    >
-      <span className={`inline-block h-3 w-3 rounded-full bg-content-primary transition-transform ${checked ? 'translate-x-4' : 'translate-x-0.5'}`} />
-    </button>
-  )
 }
 
 function ValueChip({ children }: { children: ReactNode }) {

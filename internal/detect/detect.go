@@ -115,19 +115,65 @@ const (
 	CategoryDisclosure  Category = "disclosure"
 	CategoryHeaders     Category = "headers"
 	CategoryCookies     Category = "cookies"
+	// CategoryAnomaly holds outlier findings — an endpoint unlike its siblings on
+	// the same host. These come from internal/anomaly, not the rule engine, and
+	// are advisory triage aids rather than vulnerability claims.
+	CategoryAnomaly Category = "anomaly"
+	// CategoryReflection holds input that reaches the response in a position it
+	// can leave. These come from internal/echo, not the rule engine; a
+	// reflection that cannot escape its context is mapped there and never filed
+	// here.
+	CategoryReflection Category = "reflection"
+	// CategoryDOMXSS holds runtime-confirmed DOM-based cross-site scripting: a
+	// canary placed in a controllable DOM source (the URL fragment, a query
+	// value, window.name) that the page's own JavaScript carried into a dangerous
+	// sink. These come from internal/activescan driving a headless browser over
+	// CDP, not the passive rule engine — the payload never reaches the server, so
+	// no captured response could reveal it.
+	CategoryDOMXSS Category = "dom-xss"
+	// CategoryTemplate holds results from the template-signature rule: a crafted
+	// request Joro sent whose response matched a check mined from a nuclei template
+	// (an exposed file, a known-vulnerable fingerprint, a misconfiguration). It
+	// names the finding class, not the mechanism — DOM XSS is also active-scanned
+	// but is its own class (CategoryDOMXSS). Both come from internal/activescan,
+	// not the passive engine: the probe is sent, not observed in captured traffic.
+	CategoryTemplate Category = "template"
+	// The injection classes below come from internal/activescan's parameter-fuzzing
+	// rules: Joro injected a payload into a request parameter and confirmed the
+	// vulnerability from the response (reflection/breakout, DB error, boolean or
+	// timing differential, rendered expression, redirect, file contents) or an
+	// out-of-band callback. Each is its own class, not the mechanism.
+	CategoryReflectedXSS     Category = "reflected-xss"
+	CategorySQLi             Category = "sqli"
+	CategorySSTI             Category = "ssti"
+	CategoryCommandInjection Category = "command-injection"
+	CategoryOpenRedirect     Category = "open-redirect"
+	CategoryPathTraversal    Category = "path-traversal"
+	// CategoryOOB holds confirmed out-of-band interactions: a callback canary
+	// (sha256 of an OAST token) the callback server computed and that then appeared
+	// in captured traffic. It comes from internal/oast, not the passive engine —
+	// the value is proof the target reached the callback server for that probe, so
+	// a reflection of it is a server-side interaction rather than an echo of input.
+	CategoryOOB Category = "oob"
 )
 
 // Categories lists every category. See Severities.
 var Categories = []Category{
 	CategorySecrets, CategoryPII, CategoryCredentials, CategoryAccess,
-	CategoryDisclosure, CategoryHeaders, CategoryCookies,
+	CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
+	CategoryReflection, CategoryDOMXSS, CategoryTemplate,
+	CategoryReflectedXSS, CategorySQLi, CategorySSTI, CategoryCommandInjection,
+	CategoryOpenRedirect, CategoryPathTraversal, CategoryOOB,
 }
 
 // Valid reports whether c is a known category.
 func (c Category) Valid() bool {
 	switch c {
 	case CategorySecrets, CategoryPII, CategoryCredentials, CategoryAccess,
-		CategoryDisclosure, CategoryHeaders, CategoryCookies:
+		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
+		CategoryReflection, CategoryDOMXSS, CategoryTemplate,
+		CategoryReflectedXSS, CategorySQLi, CategorySSTI, CategoryCommandInjection,
+		CategoryOpenRedirect, CategoryPathTraversal, CategoryOOB:
 		return true
 	}
 	return false
@@ -137,7 +183,10 @@ func (c Category) Valid() bool {
 func AllCategories() []Category {
 	return []Category{
 		CategorySecrets, CategoryCredentials, CategoryPII, CategoryAccess,
-		CategoryDisclosure, CategoryHeaders, CategoryCookies,
+		CategoryDisclosure, CategoryHeaders, CategoryCookies, CategoryAnomaly,
+		CategoryReflection, CategoryDOMXSS, CategoryTemplate,
+		CategoryReflectedXSS, CategorySQLi, CategorySSTI, CategoryCommandInjection,
+		CategoryOpenRedirect, CategoryPathTraversal, CategoryOOB,
 	}
 }
 
@@ -389,6 +438,15 @@ type Config struct {
 	// ExcludeHosts suppresses findings whose host contains any of these
 	// substrings.
 	ExcludeHosts []string `json:"excludeHosts"`
+
+	// AnomalyEnabled turns on per-host outlier detection (internal/anomaly),
+	// which writes anomaly-category findings into this same store. Off by default:
+	// it needs a baseline of traffic before it is useful.
+	AnomalyEnabled bool `json:"anomalyEnabled"`
+	// AnomalySensitivity tunes the outlier thresholds: "low" (only stark
+	// outliers), "medium" (default), or "high" (more, noisier). An empty or
+	// unknown value normalizes to "medium".
+	AnomalySensitivity string `json:"anomalySensitivity"`
 }
 
 // DefaultOHTTPContentTypes are the Oblivious HTTP media types never scanned.
@@ -418,7 +476,9 @@ func DefaultConfig() Config {
 			".mp4", ".webm", ".mp3", ".wav", ".ogg", ".avi", ".mov",
 			".zip", ".gz", ".bz2", ".7z", ".rar", ".pdf", ".wasm",
 		},
-		ExcludeHosts: []string{},
+		ExcludeHosts:       []string{},
+		AnomalyEnabled:     false,
+		AnomalySensitivity: "medium",
 	}
 }
 
@@ -440,6 +500,11 @@ func (c *Config) normalize() {
 	}
 	if c.ExcludeHosts == nil {
 		c.ExcludeHosts = []string{}
+	}
+	switch c.AnomalySensitivity {
+	case "low", "medium", "high":
+	default:
+		c.AnomalySensitivity = "medium"
 	}
 }
 

@@ -32,7 +32,7 @@ import (
 	"github.com/BishopFox/joro/internal/xsshunter"
 )
 
-var version = "v1.16.0"
+var version = "v1.18.3"
 var commit = "dev" // injected via -ldflags at build time
 
 func main() {
@@ -66,6 +66,7 @@ func main() {
 	flag.BoolVar(&cfg.AutomationScripting, "automation-scripting", false, "Expose script.run, which executes submitted JavaScript in a sandboxed worker process against Joro's automation SDK (off by default; still requires an explicit grant)")
 	flag.BoolVar(&cfg.AutomationCommands, "automation-commands", false, "Allow installed command automations to run local operating-system commands, on a trigger or as a lens (off by default; operator-installed only, never reachable from an automation token)")
 	flag.BoolVar(&cfg.NoWebhooks, "no-webhooks", false, "Disable outbound webhooks entirely (no routes, no webhooks.json, no outbound requests)")
+	flag.BoolVar(&cfg.NoFeeds, "no-feeds", false, "Disable threat-intelligence feeds entirely (no routes, no feeds.json, no outbound requests to NVD/CISA)")
 	flag.BoolVar(&cfg.NoPlugins, "no-plugins", false, "Do not load plugins from ~/.joro/plugins/. They are still listed in Settings so one can be deleted — use this to start after a plugin the binary cannot load")
 
 	// scriptWorker is how a script sandbox re-execs this binary. Not an operator
@@ -453,6 +454,10 @@ func runProxyMode(ctx context.Context, cfg config.Config) {
 	// Periodically save the active project when auto-save is enabled.
 	apiSrv.StartAutoSaveLoop(ctx)
 	apiSrv.StartDetectLoop(ctx)
+	apiSrv.StartAnomalyLoop(ctx)
+	apiSrv.StartEchoLoop(ctx)
+	apiSrv.StartTechLoop(ctx)
+	apiSrv.StartOASTLoop(ctx)
 
 	// Start proxy server.
 	proxyDone := make(chan struct{})

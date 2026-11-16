@@ -17,9 +17,15 @@
 @import './themes/takara.css';
 @import './themes/tokyo.css';
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@config '../tailwind.config.js';
+
+/* v3 defaulted a bare `border` to gray-200; v4 defaults border-color to
+   currentColor. Pin the default to the theme token so every bare `border` reads
+   as the design-system border without annotating each call site. */
+@layer base {
+  *, ::before, ::after { border-color: var(--color-border); }
+}
 
 button, a, select, input {
   transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease, opacity 150ms ease;
@@ -338,4 +344,34 @@ div:has(> .cm-editor) {
 .joro-flow .react-flow__handle.connectingto {
   border-color: var(--color-accent-tertiary) !important;
   transform: scale(1.6);
+}
+
+/* CVE ticker marquee.
+ *
+ * The track holds the item run twice; translateX(-50%) scrolls exactly one copy's width,
+ * so the loop is seamless. Duration is set inline per item count. Hover pauses it for
+ * readability, and reduced-motion disables the scroll entirely (the first items stay
+ * visible). */
+@keyframes joro-ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.joro-ticker-track {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  will-change: transform;
+  animation: joro-ticker linear infinite;
+}
+.joro-ticker:hover .joro-ticker-track {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .joro-ticker-track {
+    animation: none;
+  }
 }

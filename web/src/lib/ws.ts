@@ -1,6 +1,9 @@
+import { useActiveScanStore } from '../stores/activeScanStore'
 import { useAutomationStore } from '../stores/automationStore'
 import { useCallbackStore, type CallbackInteraction } from '../stores/callbackStore'
 import { useDetectStore, type Finding, type DetectSummary } from '../stores/detectStore'
+import { useEchoStore } from '../stores/echoStore'
+import type { EchoSummary } from './echoTypes'
 import { useSJStore } from '../stores/sjStore'
 import type { SJResult, SJFoundSpec } from './sjTypes'
 import { useChainStore } from '../stores/chainStore'
@@ -11,6 +14,9 @@ import { useInterceptStore, type InterceptKind, type PendingItem } from '../stor
 import { useManipulateWSStore, type WSFrameEntry } from '../stores/manipulateWSStore'
 import { useRequestStore, type RequestSummary } from '../stores/requestStore'
 import { useTeamStore, type ChatMessage, type ActiveUser } from '../stores/teamStore'
+import { useTechStore } from '../stores/techStore'
+import { useFeedsStore } from '../stores/feedsStore'
+import type { HostTech } from '../lib/api'
 import { useTeamConnectionStore, type RelayState } from '../stores/teamConnectionStore'
 import { useTeamFlaggedStore, type FlaggedSummary } from '../stores/teamFlaggedStore'
 import { useTeamSharedConfigStore, type SharedConfigSummary } from '../stores/teamSharedConfigStore'
@@ -168,6 +174,18 @@ export function connectWS() {
   }
 
   ws.onerror = () => ws?.close()
+}
+
+// Echo rows are server-side aggregates, so a live reflection can only ask for a
+// reload. One per frame keeps a rescan from issuing a request per response.
+let echoReloadScheduled = false
+function scheduleEchoReload() {
+  if (echoReloadScheduled) return
+  echoReloadScheduled = true
+  requestAnimationFrame(() => {
+    echoReloadScheduled = false
+    useEchoStore.getState().invalidate()
+  })
 }
 
 function handleMessage(msg: WSMessage) {
@@ -401,6 +419,32 @@ function handleMessage(msg: WSMessage) {
       useFuzzStore.getState().setCampaignStatus(d.campaignId, d.status === 'stopped' ? 'stopped' : 'completed')
       break
     }
+    case 'activescan.started': {
+      // The start toast fires from the initiating HTTP response (scanMenu); this
+      // builds the run row for the Scans tab + the floating pill.
+      const d = msg.data as {
+        runId: string; host: string; origin: string; scope: string; rules: string[]; total: number
+      }
+      useActiveScanStore.getState().applyStarted(d)
+      break
+    }
+    case 'activescan.progress': {
+      const d = msg.data as { runId: string; scanned: number; total: number; findings: number }
+      useActiveScanStore.getState().applyProgress(d)
+      break
+    }
+    case 'activescan.complete': {
+      const d = msg.data as {
+        runId: string; status: string; completed: number; errors: number; findings: number
+      }
+      useActiveScanStore.getState().applyComplete(d)
+      const verb = d.status === 'stopped' ? 'stopped' : 'complete'
+      useToastStore.getState().addToast(
+        `Active scan ${verb} — ${d.findings} finding${d.findings === 1 ? '' : 's'}`,
+        'info',
+      )
+      break
+    }
     case 'detect.finding': {
       const d = msg.data as { finding: Finding; isNew: boolean }
       findingBuffer.push(d.finding)
@@ -412,6 +456,19 @@ function handleMessage(msg: WSMessage) {
     }
     case 'detect.summary': {
       useDetectStore.getState().setSummary(msg.data as DetectSummary)
+      break
+    }
+    case 'tech.detected': {
+      useTechStore.getState().applyDetected(msg.data as HostTech)
+      break
+    }
+    case 'tech.summary': {
+      useTechStore.getState().setSummary(msg.data as { hosts: number; techs: number })
+      break
+    }
+    case 'feeds.updated': {
+      // A small summary hint; reload the authoritative snapshot (server-side aggregate).
+      void useFeedsStore.getState().reload()
       break
     }
     case 'detect.scan.started': {
@@ -466,6 +523,50 @@ function handleMessage(msg: WSMessage) {
     case 'detect.rules.changed': {
       // Force the rules view to refetch on next mount.
       useDetectStore.setState({ rulesLoaded: false })
+      break
+    }
+    case 'echo.summary': {
+      useEchoStore.getState().setSummary(msg.data as EchoSummary)
+      break
+    }
+    case 'echo.reflection': {
+      // The payload carries counts, not a row: a map row is an aggregate over
+      // every message that carried the parameter, so it cannot be merged
+      // client-side. Coalesce into one reload per frame instead.
+      scheduleEchoReload()
+      break
+    }
+    case 'echo.scan.started': {
+      const d = msg.data as { jobId: string; total: number }
+      useEchoStore.getState().setScan({
+        running: true,
+        jobId: d.jobId,
+        scanned: 0,
+        total: d.total,
+        status: 'running',
+      })
+      break
+    }
+    case 'echo.scan.progress': {
+      const d = msg.data as { jobId: string; scanned: number; total: number }
+      useEchoStore.getState().setScan({
+        running: true,
+        jobId: d.jobId,
+        scanned: d.scanned,
+        total: d.total,
+        status: 'running',
+      })
+      break
+    }
+    case 'echo.scan.complete': {
+      const d = msg.data as { status: string; scanned: number }
+      useEchoStore.getState().setScan({
+        running: false,
+        scanned: d.scanned,
+        total: d.scanned,
+        status: d.status,
+      })
+      useEchoStore.getState().invalidate()
       break
     }
     case 'automation.script.state': {

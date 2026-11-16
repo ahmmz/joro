@@ -7,6 +7,7 @@ import type { SJNavState } from '../lib/sjTypes'
 import type { RequestDetail } from '../stores/requestStore'
 import SJDocumentBar from '../components/sj/SJDocumentBar'
 import SJDocumentModal, { type DocTab } from '../components/sj/SJDocumentModal'
+import WarningModal from '../components/WarningModal'
 import SJProfilesModal from '../components/sj/SJProfilesModal'
 import SJOperationsView from '../components/sj/SJOperationsView'
 import SJAutomateView from '../components/sj/SJAutomateView'
@@ -42,12 +43,15 @@ export default function SJ() {
   const tab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]
   const [docModal, setDocModal] = useState<DocTab | null>(null)
   const [profilesOpen, setProfilesOpen] = useState(false)
+  const [loadErrorMsg, setLoadErrorMsg] = useState<string | null>(null)
 
-  /** applyLoadFailure turns a rejection into either an error or, for the very
-   *  common "that was the Swagger UI page" case, a pre-filled Brute tab. */
+  /** applyLoadFailure turns a rejection into either an error or, when a URL
+   *  served an HTML page instead of a document, a pre-filled Brute tab. The
+   *  verdict and its message come from the server, which has the bytes and
+   *  decides whether the page is an API-documentation UI or just HTML. */
   const applyLoadFailure = useCallback((tabId: string, e: unknown) => {
     const err = e as { message?: string; body?: unknown }
-    const body = (err as { body?: { kind?: string; candidates?: string[]; sourceUrl?: string } }).body
+    const body = (err as { body?: { kind?: string; error?: string; candidates?: string[]; sourceUrl?: string } }).body
     if (body?.kind === 'html') {
       const t = useSJStore.getState().tabs.find((x) => x.id === tabId)
       store.updateTab(tabId, {
@@ -55,7 +59,7 @@ export default function SJ() {
         subTab: 'brute',
         htmlHint: {
           message:
-            'That URL served the Swagger UI page, not a document. These are the paths it loads from.',
+            body.error ?? 'That URL served an HTML page, not an API description document.',
           candidates: body.candidates ?? [],
           sourceUrl: body.sourceUrl ?? '',
         },
@@ -66,7 +70,8 @@ export default function SJ() {
       })
       return
     }
-    store.updateTab(tabId, { loading: false, loadError: String(err?.message ?? e) })
+    store.updateTab(tabId, { loading: false })
+    setLoadErrorMsg(String(err?.message ?? e))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -202,6 +207,14 @@ export default function SJ() {
           onFailure={applyLoadFailure}
           onClose={() => setDocModal(null)}
           onBrute={() => go('brute')}
+        />
+      )}
+
+      {loadErrorMsg && (
+        <WarningModal
+          title="Couldn't load document"
+          message={loadErrorMsg}
+          onClose={() => setLoadErrorMsg(null)}
         />
       )}
 

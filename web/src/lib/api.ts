@@ -1,5 +1,16 @@
 import type { CallbackInteraction, CallbackToken } from '../stores/callbackStore'
+import type {
+  EchoConfig,
+  EchoEntry,
+  EchoInventory,
+  EchoReport,
+  EchoRequestParams,
+  EchoScanStatus,
+  EchoState,
+} from './echoTypes'
+import type { FeedSettings, FeedsResponse } from './feedTypes'
 import type { InterceptKind, PendingItem } from '../stores/interceptStore'
+import type { PayloadSource, WordlistCatalog } from './fuzzSources'
 import type { ChatMessage, ActiveUser } from '../stores/teamStore'
 import type { FlaggedSummary, FlaggedRequest } from '../stores/teamFlaggedStore'
 import type { SharedConfigSummary, SharedConfig, SharedConfigPayload } from '../stores/teamSharedConfigStore'
@@ -94,6 +105,7 @@ export interface MatchReplaceRule {
   matchType: string
   match: string
   replace: string
+  enabled: boolean
 }
 
 export interface CustomAddition {
@@ -101,6 +113,7 @@ export interface CustomAddition {
   type: string
   name: string
   value: string
+  enabled: boolean
 }
 
 export interface Note {
@@ -160,6 +173,66 @@ export interface SitemapHost {
   origin: string
   endpoints: SitemapEndpoint[]
   count: number
+}
+
+export interface Tech {
+  name: string
+  version?: string
+  categories?: string[]
+  confidence: number
+  /** CPE 2.3 string (vendor:product) when the fingerprint DB has one — used to join a
+   *  host's stack against CVE/KEV feeds. */
+  cpe?: string
+}
+
+export interface HostTech {
+  host: string
+  technologies: Tech[]
+  updatedAt: string
+}
+
+export interface TechScanStatus {
+  running: boolean
+  jobId?: string
+  scanned: number
+  total: number
+  status?: string
+}
+
+export interface ActiveScanRule {
+  id: string
+  name: string
+  category: string
+  description: string
+  enabled: boolean
+  hasSignatures: boolean
+  // Present for single-row engines (e.g. DOM XSS) whose row carries these; a
+  // catalog engine's rows carry their own.
+  severity?: string
+  confidence?: string
+  target?: string
+}
+
+/** One read-only line in a catalog item's detail (e.g. "Payloads" -> "...", "Request"
+ *  -> "GET /.git/config"). Neutral so it serves both nuclei signatures and injection
+ *  checks. Mirrors activescan.CatalogField. */
+export interface CatalogDetailField {
+  label: string
+  value: string
+}
+
+/** One toggleable entry in an active rule's catalog — a nuclei signature or an
+ *  injection check. Mirrors activescan.CatalogItem. */
+export interface SignatureCatalogItem {
+  id: string
+  name: string
+  severity: string
+  confidence?: string
+  target?: string
+  description?: string
+  remediation?: string
+  enabled: boolean
+  detail?: CatalogDetailField[]
 }
 
 export interface CapturedWSMessage {
@@ -1087,6 +1160,20 @@ async function upload<T>(path: string, form: FormData): Promise<T> {
   return res.json() as Promise<T>
 }
 
+export interface ActiveScanRun {
+  id: string
+  host: string
+  origin: string
+  scope: string
+  rules: string[]
+  status: 'running' | 'complete' | 'stopped'
+  total: number
+  completed: number
+  errors: number
+  findings: number
+  createdAt: string
+}
+
 export const api = {
   // Sitemap
   getSitemap: (params: Record<string, string | number> = {}) => {
@@ -1104,6 +1191,26 @@ export const api = {
     if (path !== undefined) qs.set('path', path)
     return req<{ deleted: number }>('DELETE', `/sitemap?${qs.toString()}`)
   },
+  // Delete captured requests whose host matches a glob (the host-level companion to
+  // adding a noise pattern). pattern is the host glob stored as the noise pattern.
+  deleteRequestsByHost: (pattern: string) =>
+    req<{ deleted: number }>('DELETE', `/requests/by-host?${new URLSearchParams({ pattern }).toString()}`),
+  // Every parameter the node's requests carried. The node is 'origin', not 'host'
+  // as deleteSitemapNode names it: this endpoint also takes the tree's filters,
+  // where 'host' means a substring of the captured Host header. Filters must match
+  // the ones the tree was built with, or the counts disagree with it.
+  sitemapParams: (
+    origin: string,
+    path?: string,
+    filters: Record<string, string | number> = {}
+  ) => {
+    const qs = new URLSearchParams({ origin })
+    if (path !== undefined) qs.set('path', path)
+    for (const [k, v] of Object.entries(filters)) {
+      if (v !== '' && v !== 0) qs.set(k, String(v))
+    }
+    return req<EchoInventory>('GET', `/sitemap/params?${qs.toString()}`)
+  },
 
   // History
   listRequests: (params: Record<string, string | number>) => {
@@ -1117,6 +1224,8 @@ export const api = {
     )
   },
   getRequest: (id: string) => req<unknown>('GET', `/requests/${id}`),
+  // Every input this one request carried, across every source.
+  requestParams: (id: string) => req<EchoRequestParams>('GET', `/requests/${id}/params`),
   clearRequests: () => req<unknown>('DELETE', '/requests'),
 
   // Intercept
@@ -1154,6 +1263,8 @@ export const api = {
     raw: string; scheme: string; host: string;
     wordlist?: string[];
     wordlists?: Record<string, string[]>;
+    source?: PayloadSource;
+    sources?: Record<string, PayloadSource>;
     attackMode?: string;
     threads: number; rateLimit: number; followRedirects: boolean;
     updateContentLength?: boolean;
@@ -1163,6 +1274,9 @@ export const api = {
     matcherMode: string; filterMode: string;
     maxStoredBodies?: number;
   }) => req<{ campaignId: string; total: number }>('POST', '/fuzzer/start', params),
+  fuzzListWordlists: () => req<WordlistCatalog>('GET', '/fuzzer/wordlists'),
+  fuzzPreviewSource: (source: PayloadSource) =>
+    req<{ count: number; sample: string[]; exceedsLimit: boolean }>('POST', '/fuzzer/wordlist/preview', source),
   fuzzStop: (id: string) => req<{ status: string }>('POST', `/fuzzer/${id}/stop`),
   fuzzListCampaigns: () => req<{ campaigns: Array<{ id: string; status: string; createdAt: string; total: number; completed: number; errors: number }> }>('GET', '/fuzzer/campaigns'),
   fuzzGetCampaign: (id: string, offset?: number, limit?: number) => {
@@ -1191,7 +1305,7 @@ export const api = {
   // A document is loaded from exactly one source. `url` is fetched server-side
   // through Joro's own proxy, so the retrieval is captured into History like any
   // other traffic; the browser never fetches a target directly.
-  sjLoad: (body: { raw?: string; text?: string; url?: string; name?: string }) =>
+  sjLoad: (body: { raw?: string; text?: string; url?: string; name?: string; userAgent?: string }) =>
     req<{ spec: SJSpec }>('POST', '/spec/load', body),
   sjListSpecs: () => req<{ specs: SJSpecSummary[] }>('GET', '/spec/specs'),
   sjGetSpec: (id: string) => req<{ spec: SJSpec }>('GET', `/spec/specs/${id}`),
@@ -1292,6 +1406,59 @@ export const api = {
   chainStopRun: (id: string) => req<unknown>('POST', `/chain/runs/${id}/stop`),
   chainDeleteRun: (id: string) => req<unknown>('DELETE', `/chain/runs/${id}`),
 
+  // Echo — the reflection map: which values sent in a request come back, and how.
+  echoState: () => req<EchoState>('GET', '/echo'),
+  echoSetEnabled: (enabled: boolean) =>
+    req<{ enabled: boolean }>('PUT', '/echo/enabled', { enabled }),
+  echoGetConfig: () => req<EchoConfig>('GET', '/echo/config'),
+  // A patch: every field is optional server-side, so a partial object is valid.
+  echoSetConfig: (body: Partial<EchoConfig>) =>
+    req<EchoConfig>('PUT', '/echo/config', body),
+  echoListParams: (params: Record<string, string | number>) => {
+    const qs = new URLSearchParams(
+      Object.entries(params)
+        .filter(([, v]) => v !== '' && v !== 0)
+        .map(([k, v]) => [k, String(v)])
+    ).toString()
+    return req<{ items: EchoEntry[]; total: number; offset: number; limit: number }>(
+      'GET', `/echo/params${qs ? `?${qs}` : ''}`)
+  },
+  echoGetParam: (id: string) => req<EchoEntry>('GET', `/echo/params/${id}`),
+  // analyzed:false means the message predates the mapper being switched on, not
+  // that it holds no reflections.
+  echoGetRequest: (requestId: string) =>
+    req<{ requestId: string; analyzed: boolean; report?: EchoReport }>(
+      'GET', `/echo/requests/${requestId}`),
+  echoClear: () => req<unknown>('DELETE', '/echo/data'),
+  // Backfills the map from captured history — the usual path, since the mapper
+  // is switched on once the interesting traffic is already captured.
+  echoStartScan: (body?: { scope?: string; host?: string; clear?: boolean }) =>
+    req<EchoScanStatus>('POST', '/echo/scan', body ?? {}),
+  echoGetScan: () => req<EchoScanStatus>('GET', '/echo/scan'),
+  echoCancelScan: () => req<EchoScanStatus>('POST', '/echo/scan/cancel', {}),
+
+  // Technology fingerprinting (passive; the embedded Wappalyzer database)
+  techHosts: () =>
+    req<{ enabled: boolean; hosts: HostTech[]; summary: { hosts: number; techs: number } }>(
+      'GET', '/tech/hosts'),
+  techHost: (host: string) => req<HostTech>('GET', `/tech/hosts/${encodeURIComponent(host)}`),
+  techSetEnabled: (enabled: boolean) =>
+    req<{ enabled: boolean }>('PUT', '/tech/enabled', { enabled }),
+  // Re-fingerprint captured history: all hosts, or one when scope is 'host'. Used
+  // to backfill hosts the live cursor skipped (e.g. a loaded project).
+  techScan: (body?: { scope?: 'host' | 'all'; host?: string; clear?: boolean }) =>
+    req<TechScanStatus>('POST', '/tech/scan', body ?? {}),
+  techScanStatus: () => req<TechScanStatus>('GET', '/tech/scan'),
+  techScanCancel: () => req<TechScanStatus>('POST', '/tech/scan/cancel', {}),
+
+  // Threat-intel feeds (NVD CVEs, CISA KEV, advisory headlines). Off by default; a 404
+  // means --no-feeds or an unreadable feeds.json, which the store reads as "unavailable".
+  getFeeds: () => req<FeedsResponse>('GET', '/feeds'),
+  refreshFeeds: () => req<{ status: string }>('POST', '/feeds/refresh', {}),
+  getFeedsSettings: () => req<FeedSettings>('GET', '/feeds/settings'),
+  setFeedsSettings: (settings: FeedSettings) =>
+    req<FeedSettings>('PUT', '/feeds/settings', settings),
+
   // Generate
   generate: (format: string, mode?: string, implantUrl?: string, binaryName?: string, inMemory?: boolean, payloadFileName?: string, archiveName?: string, payloadDirectory?: string, archiveRootDir?: string, harpyToken?: string) =>
     req<{ fileName: string; authKey: string; content: string }>(
@@ -1322,13 +1489,15 @@ export const api = {
   // Match & Replace
   getReplace: () => req<{ enabled: boolean; rules: MatchReplaceRule[] }>('GET', '/replace'),
   setReplaceEnabled: (enabled: boolean) => req<unknown>('PUT', '/replace/enabled', { enabled }),
-  addReplaceRule: (rule: Omit<MatchReplaceRule, 'id'>) => req<MatchReplaceRule>('POST', '/replace/rules', rule),
+  addReplaceRule: (rule: Omit<MatchReplaceRule, 'id' | 'enabled'>) => req<MatchReplaceRule>('POST', '/replace/rules', rule),
+  setReplaceRuleEnabled: (id: string, enabled: boolean) => req<unknown>('PUT', `/replace/rules/${id}/enabled`, { enabled }),
   deleteReplaceRule: (id: string) => req<unknown>('DELETE', `/replace/rules/${id}`),
 
   // Custom Data
   getCustomData: () => req<{ enabled: boolean; items: CustomAddition[] }>('GET', '/customdata'),
   setCustomDataEnabled: (enabled: boolean) => req<unknown>('PUT', '/customdata/enabled', { enabled }),
-  addCustomDataItem: (item: Omit<CustomAddition, 'id'>) => req<CustomAddition>('POST', '/customdata/items', item),
+  addCustomDataItem: (item: Omit<CustomAddition, 'id' | 'enabled'>) => req<CustomAddition>('POST', '/customdata/items', item),
+  setCustomDataItemEnabled: (id: string, enabled: boolean) => req<unknown>('PUT', `/customdata/items/${id}/enabled`, { enabled }),
   deleteCustomDataItem: (id: string) => req<unknown>('DELETE', `/customdata/items/${id}`),
 
   // WebSocket messages
@@ -1462,6 +1631,8 @@ export const api = {
   clearInteractions: (tokenId?: string) =>
     req<unknown>('DELETE', `/callbacks/interactions${tokenId ? `?token_id=${tokenId}` : ''}`),
   getCallbackConfig: () => req<{ domain: string; responseIp: string }>('GET', '/callbacks/config'),
+  verifyCallback: (token: string, value: string) =>
+    req<{ valid: boolean; tokenId?: string }>('POST', '/callbacks/verify', { token, value }),
 
   // XSS Hunter
   listProbes: () => req<XSSProbe[]>('GET', '/xss/probes', undefined, TEAM_POLL_TIMEOUT),
@@ -1574,9 +1745,9 @@ export const api = {
       scopeEnabled: scope.enabled,
       scopeRules: scope.rules.map(({ pattern, methods, path, include }) => ({ pattern, methods, path, include })),
       replaceEnabled: replace.enabled,
-      replaceRules: replace.rules.map(({ target, matchType, match, replace }) => ({ target, matchType, match, replace })),
+      replaceRules: replace.rules.map(({ target, matchType, match, replace, enabled }) => ({ target, matchType, match, replace, disabled: !enabled })),
       customDataEnabled: custom.enabled,
-      customDataItems: custom.items.map(({ type, name, value }) => ({ type, name, value })),
+      customDataItems: custom.items.map(({ type, name, value, enabled }) => ({ type, name, value, disabled: !enabled })),
       // Only custom rules travel; built-ins exist on every install.
       detectRules: (detect?.rules ?? [])
         .filter((r) => !r.builtin)
@@ -1700,6 +1871,46 @@ export const api = {
     req<ScanState>('POST', '/detect/scan', opts ?? {}),
   getDetectScan: () => req<ScanState>('GET', '/detect/scan'),
   cancelDetectScan: () => req<{ status: string }>('POST', '/detect/scan/cancel'),
+
+  // Active scanning — operator-initiated rules (DOM XSS is the first) that drive a
+  // target and file findings into Detect. Scope "host" scans every captured GET
+  // endpoint for origin; "request" scans one captured request or a raw url.
+  activeScanRules: () => req<{ rules: ActiveScanRule[] }>('GET', '/activescan/rules'),
+  setActiveScanRuleEnabled: (id: string, enabled: boolean) =>
+    req<{ enabled: boolean }>('PUT', `/activescan/rules/${id}/enabled`, { enabled }),
+  activeScanSignatures: (ruleId: string) =>
+    req<{ signatures: SignatureCatalogItem[]; total: number; bySeverity: Record<string, number> }>(
+      'GET', `/activescan/rules/${ruleId}/signatures`),
+  setActiveScanSignatureEnabled: (ruleId: string, id: string, enabled: boolean) =>
+    req<{ enabled: boolean }>(
+      'PUT',
+      `/activescan/rules/${encodeURIComponent(ruleId)}/signatures/${encodeURIComponent(id)}/enabled`,
+      { enabled },
+    ),
+  setActiveScanSignaturesBulk: (ruleId: string, enabled: boolean) =>
+    req<{ enabled: boolean }>('PUT', `/activescan/rules/${ruleId}/signatures/enabled`, { enabled }),
+  startActiveScan: (body: {
+    scope: 'host' | 'request'
+    origin?: string
+    url?: string
+    requestId?: string
+    rules?: string[]
+    tags?: string[]
+    severity?: string[]
+    ignoreFingerprint?: boolean
+    oast?: boolean
+  }) =>
+    req<{ runId: string; total: number; rules: string[]; urls: number; skipped: number }>(
+      'POST',
+      '/activescan/runs',
+      body,
+    ),
+  listActiveScanRuns: () => req<{ runs: ActiveScanRun[] }>('GET', '/activescan/runs'),
+  getActiveScanRun: (id: string) =>
+    req<ActiveScanRun & { errorMessages: string[] }>('GET', `/activescan/runs/${id}`),
+  stopActiveScan: (id: string) =>
+    req<{ stopped: boolean }>('POST', `/activescan/runs/${id}/stop`),
+  deleteActiveScan: (id: string) => req<{ deleted: boolean }>('DELETE', `/activescan/runs/${id}`),
 
   // Highlights
   getHighlights: () => req<{ highlights: Record<string, string> }>('GET', '/highlights'),

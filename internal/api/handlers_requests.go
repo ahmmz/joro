@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/BishopFox/joro/internal/echo"
 	"github.com/BishopFox/joro/internal/proxy"
 )
 
@@ -120,6 +121,35 @@ func (s *APIServer) handleGetRequest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleGetRequestParams lists every input one captured request carried — query,
+// path segment, form field, JSON leaf, multipart field, cookie and header — as
+// the one walker in the repo enumerates them. It is the per-request half of the
+// site-map inventory and, like it, runs on demand and needs nothing from the
+// reflection engine.
+func (s *APIServer) handleGetRequestParams(w http.ResponseWriter, r *http.Request) {
+	item := s.store.Get(r.PathValue("id"))
+	if item == nil {
+		writeError(w, http.StatusNotFound, "request not found")
+		return
+	}
+
+	cfg := echo.DefaultConfig()
+	if s.echoEngine != nil {
+		cfg = s.echoEngine.Config()
+	}
+	cfg.Normalize()
+	params := echo.RequestParams(item, cfg)
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"requestId": item.ID,
+		"params":    params,
+		// The walker stops at MaxValuesPerRequest without saying it did, so a full
+		// slice is the only signal available. A request carrying exactly the cap
+		// reports truncated, which is the safe direction to be wrong in.
+		"truncated": len(params) >= cfg.MaxValuesPerRequest,
+	})
+}
+
 func (s *APIServer) handleClearRequests(w http.ResponseWriter, r *http.Request) {
 	s.store.Clear()
 	// Clear zeroes the store's sequence counter, so the detection cursor must be
@@ -127,4 +157,19 @@ func (s *APIServer) handleClearRequests(w http.ResponseWriter, r *http.Request) 
 	s.resetDetectCursor(0)
 	s.clearDetectFindingsWithHistory()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cleared"})
+}
+
+// handleDeleteRequestsByHost removes captured requests whose host matches a glob,
+// the "clear what is already captured" companion to adding a noise pattern. The
+// required "pattern" query param is the host glob (filepath.Match), the same value
+// stored as the noise pattern. Removing the requests also drops them from the site
+// map, which is derived from the same store.
+func (s *APIServer) handleDeleteRequestsByHost(w http.ResponseWriter, r *http.Request) {
+	pattern := r.URL.Query().Get("pattern")
+	if pattern == "" {
+		writeError(w, http.StatusBadRequest, "pattern is required")
+		return
+	}
+	removed := s.store.DeleteByHostPattern(pattern)
+	writeJSON(w, http.StatusOK, map[string]int{"deleted": removed})
 }

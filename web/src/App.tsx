@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import Toasts from './components/Toasts'
+import ActiveScanIndicator from './components/ActiveScanIndicator'
+import ScanOptionsModal from './components/ScanOptionsModal'
 import UpdateBanner from './components/UpdateBanner'
 import PluginBanner from './components/PluginBanner'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -19,6 +21,7 @@ import { currentTheme } from './lib/theme'
 import Callbacks from './pages/Callbacks'
 import History from './pages/History'
 import Detect from './pages/Detect'
+import Echo from './pages/Echo'
 import Intercept from './pages/Intercept'
 import Manipulate from './pages/Manipulate'
 import Fuzz from './pages/Fuzz'
@@ -215,6 +218,8 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen">
       <Toasts />
+      <ActiveScanIndicator />
+      <ScanOptionsModal />
       <UpdateBanner />
       <PluginBanner failed={failedPlugins} />
       {/* Top nav */}
@@ -322,6 +327,7 @@ export default function App() {
           <Route path="/map" element={<Map />} />
           <Route path="/history" element={<History />} />
           <Route path="/detect" element={<Detect />} />
+          <Route path="/echo" element={<Echo />} />
           <Route path="/intercept" element={<Intercept />} />
           <Route path="/manipulate" element={<Manipulate />} />
           <Route path="/fuzz" element={<Fuzz />} />

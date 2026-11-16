@@ -16,6 +16,8 @@ import { changeRequestType, changeContentType, getMethod, getContentType, rawToC
 import ContextMenu from '../components/ContextMenu'
 import { Tooltip } from '../components/Tooltip'
 import { getSelectionMenuItems } from '../lib/selectionMenu'
+import { initiateScan } from '../lib/scanMenu'
+import { useScanOptionsStore } from '../stores/scanOptionsStore'
 import { copyText } from '../lib/clipboard'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
@@ -297,7 +299,7 @@ export default function ManipulateHTTP() {
                 onBlur={commitRename}
                 onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setEditingTabId(null) }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-surface-input text-xs px-1 py-0 rounded-sm border border-border w-16 outline-none"
+                className="bg-surface-input text-xs px-1 py-0 rounded-sm border border-border w-16 outline-hidden"
               />
             ) : (
               <span>{t.name}</span>
@@ -473,6 +475,16 @@ export default function ManipulateHTTP() {
           <ContextMenu x={ctxMenu.x} y={ctxMenu.y} onClose={handleCloseCtxMenu} items={[
             ...getSelectionMenuItems(navigate),
             { label: 'Fuzz', onClick: sendToFuzz },
+            { label: 'Initiate scan', onClick: () => initiateScan({ scope: 'request', url: getRequestUrl() }) },
+            {
+              label: 'Scan with options…',
+              onClick: () =>
+                useScanOptionsStore.getState().openScan({
+                  scope: 'request',
+                  url: getRequestUrl(),
+                  label: getRequestUrl() || 'Request',
+                }),
+            },
             {
               label: method === 'GET' ? 'Change to POST' : 'Change to GET',
               onClick: () => updateTab(tab.id, { rawReq: changeRequestType(tab.rawReq) }),
